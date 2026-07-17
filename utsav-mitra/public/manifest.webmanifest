@@ -1,0 +1,17 @@
+{
+  "name": "Utsav Mitra",
+  "short_name": "Utsav",
+  "description": "Friend-circle event manager for Ganpati, parties, and group functions",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f12",
+  "theme_color": "#0f0f12",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

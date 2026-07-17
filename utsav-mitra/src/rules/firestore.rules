@@ -1,0 +1,56 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superAdmin';
+    }
+
+    function isEventMember(eventId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/events/$(eventId)) &&
+        request.auth.uid in get(/databases/$(database)/documents/events/$(eventId)).data.members.uid;
+    }
+
+    function isEventOwner(eventId) {
+      return isEventMember(eventId) && isSuperAdmin() == false &&
+        get(/databases/$(database)/documents/events/$(eventId)).data.createdBy == request.auth.uid;
+    }
+
+    // Users: super admin full; users read/update own doc only.
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow create: if isSuperAdmin() || (request.auth.uid == uid && !exists(/databases/$(database)/documents/users/$(uid)));
+      allow update: if isSuperAdmin() || (request.auth.uid == uid);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Events: members read; owner or super admin write.
+    match /events/{eventId} {
+      allow read: if isEventMember(eventId) || isSuperAdmin();
+      allow create: if isSuperAdmin() || isSignedIn();
+      allow update: if isEventOwner(eventId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+
+      match /{subcollection}/{docId} {
+        allow read: if isEventMember(eventId) || isSuperAdmin();
+        allow write: if isEventMember(eventId) || isSuperAdmin();
+      }
+    }
+
+    // Shared templates: all signed-in read; creator writes own; super admin manages all.
+    match /templates/{tid} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSuperAdmin() ||
+        (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+    }
+  }
+}

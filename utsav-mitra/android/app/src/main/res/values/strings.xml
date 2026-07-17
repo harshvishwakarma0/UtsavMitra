@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Utsav Mitra</string>
+    <string name="title_activity_main">Utsav Mitra</string>
+    <string name="package_name">com.utsavmitra.app</string>
+    <string name="custom_url_scheme">com.utsavmitra.app</string>
+</resources>
