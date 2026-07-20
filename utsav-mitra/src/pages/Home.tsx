@@ -77,12 +77,13 @@ export default function Home() {
         description: "",
       });
 
+      // Seed template items asynchronously in the background so UI navigation is instantaneous
       if (kind === "ganpati") {
-        await seedFromTemplate(id, ganpatiTemplate);
+        seedFromTemplate(id, ganpatiTemplate).catch((e) => console.error("Template seed error:", e));
       } else if (kind === "custom" && selectedTemplateId) {
         const chosen = templates.find((t) => t.id === selectedTemplateId);
         if (chosen?.items?.length) {
-          await seedFromTemplate(id, chosen.items);
+          seedFromTemplate(id, chosen.items).catch((e) => console.error("Template seed error:", e));
         }
       }
 

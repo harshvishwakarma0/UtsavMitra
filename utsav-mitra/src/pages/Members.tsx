@@ -7,13 +7,17 @@ import { updateEvent } from "@/firebase/events";
 import type { EventDoc, EventMember, EventMemberRole } from "@/types";
 
 export default function Members() {
-  const { eventId } = useOutletContext<{ eventId: string }>();
+  const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile, isSuperAdmin } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!contextEvent);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (contextEvent) setEvent(contextEvent);
+  }, [contextEvent]);
 
   async function load() {
     try {

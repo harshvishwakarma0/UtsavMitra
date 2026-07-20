@@ -1,4 +1,8 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/firebase/config";
+import type { EventDoc } from "@/types";
 import { Home as HomeIcon, Wallet, CheckSquare, ShoppingCart, Bell, Images, Users, ArrowLeft } from "lucide-react";
 
 const tabs = [
@@ -14,6 +18,23 @@ const tabs = [
 export default function EventLayout() {
   const { id } = useParams();
   const nav = useNavigate();
+  const [event, setEvent] = useState<EventDoc | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    const unsub = onSnapshot(
+      doc(db, "events", id),
+      (snap) => {
+        if (snap.exists()) {
+          setEvent({ id: snap.id, ...snap.data() } as EventDoc);
+        }
+      },
+      (err) => {
+        console.error("Event snapshot error:", err);
+      }
+    );
+    return unsub;
+  }, [id]);
 
   return (
     <div className="flex h-screen flex-col bg-background text-text">
@@ -26,11 +47,13 @@ export default function EventLayout() {
           <ArrowLeft size={16} />
           All Events
         </button>
-        <span className="text-xs text-text-dim font-mono truncate max-w-[150px]">Event: {id?.slice(0, 8)}...</span>
+        <span className="text-xs font-medium text-text truncate max-w-[200px]">
+          {event?.title || `Event: ${id?.slice(0, 8)}`}
+        </span>
       </header>
 
       <main className="flex-1 overflow-y-auto max-w-3xl w-full mx-auto">
-        <Outlet context={{ eventId: id! }} />
+        <Outlet context={{ event, eventId: id! }} />
       </main>
 
       <nav className="sticky bottom-0 grid grid-cols-7 border-t border-border bg-surface shrink-0 shadow-lg">

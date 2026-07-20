@@ -8,24 +8,30 @@ import { computeSettlement, netForMember } from "@/lib/settlement";
 import type { EventDoc, Expense, SplitEntry } from "@/types";
 
 export default function Expenses() {
-  const { eventId } = useOutletContext<{ eventId: string }>();
+  const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState("Decoration");
   const [splitMode, setSplitMode] = useState<"equal" | "custom">("equal");
   const [customAmounts, setCustomAmounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!contextEvent);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (contextEvent) setEvent(contextEvent);
+  }, [contextEvent]);
 
   async function load() {
     try {
       setLoading(true);
-      const e = await getDoc(doc(db, "events", eventId));
-      if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      if (!contextEvent) {
+        const e = await getDoc(doc(db, "events", eventId));
+        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      }
       setExpenses(await getExpenses(eventId));
     } catch (e: any) {
       console.error("Failed to load expenses:", e);

@@ -23,8 +23,14 @@ service cloud.firestore {
     }
 
     function isEventOwner(eventId) {
-      return isEventMember(eventId) && isSuperAdmin() == false &&
-        get(/databases/$(database)/documents/events/$(eventId)).data.createdBy == request.auth.uid;
+      return isEventMember(eventId) && (
+        get(/databases/$(database)/documents/events/$(eventId)).data.createdBy == request.auth.uid ||
+        isSuperAdmin()
+      );
+    }
+
+    function isReasonableSize() {
+      return request.resource == null || request.resource.data.keys().size() < 50;
     }
 
     // Users: super admin full; users read/update own doc only.
@@ -38,20 +44,26 @@ service cloud.firestore {
     // Events: members read; owner or super admin write.
     match /events/{eventId} {
       allow read: if isEventMember(eventId) || isSuperAdmin();
-      allow create: if isSuperAdmin() || isSignedIn();
+      allow create: if isSuperAdmin() || (
+        isSignedIn() &&
+        request.resource.data.createdBy == request.auth.uid &&
+        request.resource.data.memberUids.hasAll([request.auth.uid]) &&
+        isReasonableSize()
+      );
       allow update: if isEventOwner(eventId) || isSuperAdmin();
-      allow delete: if isSuperAdmin();
+      allow delete: if isEventOwner(eventId) || isSuperAdmin();
 
       match /{subcollection}/{docId} {
         allow read: if isEventMember(eventId) || isSuperAdmin();
-        allow write: if isEventMember(eventId) || isSuperAdmin();
+        allow create, update: if (isEventMember(eventId) || isSuperAdmin()) && isReasonableSize();
+        allow delete: if isEventMember(eventId) || isSuperAdmin();
       }
     }
 
     // Shared templates: all signed-in read; creator writes own; super admin manages all.
     match /templates/{tid} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow create: if isSignedIn() && isReasonableSize();
       allow update, delete: if isSuperAdmin() ||
         (isSignedIn() && resource.data.ownerUid == request.auth.uid);
     }

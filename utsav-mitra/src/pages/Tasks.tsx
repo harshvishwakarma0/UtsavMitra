@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { addTask, deleteTask, getTasks, updateTask } from "@/firebase/events";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
+import { cn } from "@/lib/utils";
 import type { EventDoc, Task, TaskStatus, TaskPriority } from "@/types";
 
 const columns: { status: TaskStatus; label: string }[] = [
@@ -19,22 +20,30 @@ const priColor: Record<TaskPriority, string> = {
 };
 
 export default function Tasks() {
-  const { eventId } = useOutletContext<{ eventId: string }>();
+  const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [deadline, setDeadline] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [assigneeUid, setAssigneeUid] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!contextEvent);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (contextEvent) setEvent(contextEvent);
+  }, [contextEvent]);
 
   async function load() {
     try {
       setLoading(true);
-      const e = await getDoc(doc(db, "events", eventId));
-      if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      if (!contextEvent) {
+        const e = await getDoc(doc(db, "events", eventId));
+        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      }
       setTasks(await getTasks(eventId));
     } catch (e: any) {
       console.error("Failed to load tasks:", e);
@@ -58,12 +67,16 @@ export default function Tasks() {
     try {
       await addTask(eventId, {
         title: title.trim(),
+        description: description.trim() || undefined,
+        deadline: deadline.trim() || undefined,
         status: "pending",
         priority,
         assignedTo: assigneeUid || profile.uid,
         createdAt: Date.now(),
       });
       setTitle("");
+      setDescription("");
+      setDeadline("");
       setAssigneeUid("");
       await load();
     } catch (e: any) {
@@ -84,6 +97,16 @@ export default function Tasks() {
     }
   }
 
+  async function handleDrop(e: React.DragEvent, colStatus: TaskStatus) {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData("text/plain");
+    if (!taskId) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (task && task.status !== colStatus) {
+      await setStatus(task, colStatus);
+    }
+  }
+
   async function handleDelete(taskId: string) {
     if (!confirm("Delete this task?")) return;
     try {
@@ -100,7 +123,7 @@ export default function Tasks() {
 
   return (
     <div className="space-y-4 p-4 pb-24">
-      <h1 className="text-xl font-bold">Tasks</h1>
+      <h1 className="text-xl font-bold">Task Kanban Board</h1>
 
       {err && <div className="rounded-lg bg-surface-2 p-3 text-sm text-danger">{err}</div>}
 
@@ -111,7 +134,19 @@ export default function Tasks() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
-        <div className="flex gap-2">
+        <textarea
+          className="w-full rounded-lg bg-surface-2 border border-border p-2 text-text text-sm min-h-[60px]"
+          placeholder="Task details/description (optional)"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="date"
+            className="flex-1 rounded-lg bg-surface-2 border border-border p-2 text-sm text-text"
+            value={deadline}
+            onChange={(e) => setDeadline(e.target.value)}
+          />
           <select
             className="flex-1 rounded-lg bg-surface-2 border border-border p-2 text-sm text-text"
             value={priority}
@@ -150,7 +185,12 @@ export default function Tasks() {
           {columns.map((col) => {
             const colTasks = tasks.filter((t) => t.status === col.status);
             return (
-              <div key={col.status} className="space-y-2 rounded-xl border border-border bg-surface p-3">
+              <div
+                key={col.status}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => handleDrop(e, col.status)}
+                className="space-y-2 rounded-xl border border-border bg-surface p-3 min-h-[200px]"
+              >
                 <div className="flex items-center justify-between border-b border-border pb-2 text-sm font-semibold text-text-dim">
                   <span>{col.label}</span>
                   <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs">{colTasks.length}</span>
@@ -160,9 +200,12 @@ export default function Tasks() {
                   {colTasks.map((t) => (
                     <div
                       key={t.id}
-                      className={`rounded-lg border border-border bg-surface-2 p-3.5 space-y-2 transition-all ${
-                        t.status === "done" ? "opacity-70" : ""
-                      }`}
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
+                      className={cn(
+                        "cursor-grab active:cursor-grabbing rounded-lg border border-border bg-surface-2 p-3.5 space-y-2 transition-all hover:border-primary/40",
+                        t.status === "done" && "opacity-70"
+                      )}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-start gap-2 flex-1 min-w-0">
@@ -170,13 +213,18 @@ export default function Tasks() {
                             className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${priColor[t.priority]}`}
                             title={`${t.priority} priority`}
                           />
-                          <span
-                            className={`text-sm font-medium leading-tight text-text break-words ${
-                              t.status === "done" ? "line-through text-text-dim" : ""
-                            }`}
-                          >
-                            {t.title}
-                          </span>
+                          <div className="space-y-1 flex-1">
+                            <span
+                              className={`text-sm font-medium leading-tight text-text break-words block ${
+                                t.status === "done" ? "line-through text-text-dim" : ""
+                              }`}
+                            >
+                              {t.title}
+                            </span>
+                            {t.description && (
+                              <p className="text-xs text-text-dim line-clamp-2">{t.description}</p>
+                            )}
+                          </div>
                         </div>
                         <button
                           onClick={() => handleDelete(t.id)}
@@ -187,7 +235,13 @@ export default function Tasks() {
                         </button>
                       </div>
 
-                      <div className="flex items-center justify-between gap-2 text-xs text-text-dim">
+                      {t.deadline && (
+                        <div className="text-[11px] text-primary bg-primary/10 rounded px-1.5 py-0.5 inline-block font-mono">
+                          📅 {new Date(t.deadline).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between gap-2 text-xs text-text-dim pt-1 border-t border-border/40">
                         <span className="truncate">👤 {getAssigneeName(t.assignedTo)}</span>
                         <select
                           className="rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-text"
@@ -204,7 +258,9 @@ export default function Tasks() {
                     </div>
                   ))}
                   {colTasks.length === 0 && (
-                    <p className="py-2 text-center text-xs text-text-dim">No {col.label.toLowerCase()} tasks</p>
+                    <p className="py-6 text-center text-xs text-text-dim border border-dashed border-border/50 rounded-lg">
+                      Drag or move tasks here
+                    </p>
                   )}
                 </div>
               </div>

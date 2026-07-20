@@ -7,21 +7,27 @@ import { db } from "@/firebase/config";
 import type { EventDoc, Notice } from "@/types";
 
 export default function Notices() {
-  const { eventId } = useOutletContext<{ eventId: string }>();
+  const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!contextEvent);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+
+  useEffect(() => {
+    if (contextEvent) setEvent(contextEvent);
+  }, [contextEvent]);
 
   async function load() {
     try {
       setLoading(true);
-      const e = await getDoc(doc(db, "events", eventId));
-      if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      if (!contextEvent) {
+        const e = await getDoc(doc(db, "events", eventId));
+        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      }
       setNotices(await getNotices(eventId));
     } catch (e: any) {
       console.error("Failed to load notices:", e);

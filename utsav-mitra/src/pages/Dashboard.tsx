@@ -1,36 +1,41 @@
 import { useOutletContext, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { getExpenses, getTasks, getNotices } from "@/firebase/events";
 import { computeSettlement } from "@/lib/settlement";
 import type { EventDoc, Expense, Task, Notice } from "@/types";
 
 export default function Dashboard() {
-  const { eventId } = useOutletContext<{ eventId: string }>();
+  const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
   const nav = useNavigate();
-  const [event, setEvent] = useState<EventDoc | null>(null);
+  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!contextEvent);
   const [err, setErr] = useState("");
 
-  const myRole = event?.members.find((m) => m.uid === profile?.uid)?.role;
+  const myRole = event?.members?.find((m) => m.uid === profile?.uid)?.role;
   const canSeeFinance = myRole === "owner" || myRole === "treasurer" || profile?.role === "superAdmin";
   const myTasks = tasks.filter((t) => t.assignedTo === profile?.uid && t.status !== "done");
+
+  useEffect(() => {
+    if (contextEvent) setEvent(contextEvent);
+  }, [contextEvent]);
 
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        const e = await getDoc(doc(db, "events", eventId));
-        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
-        setExpenses(await getExpenses(eventId));
-        setTasks(await getTasks(eventId));
-        setNotices(await getNotices(eventId));
+        const [eDocs, tDocs, nDocs] = await Promise.all([
+          getExpenses(eventId),
+          getTasks(eventId),
+          getNotices(eventId),
+        ]);
+        setExpenses(eDocs);
+        setTasks(tDocs);
+        setNotices(nDocs);
       } catch (e: any) {
         console.error("Dashboard data load error:", e);
         setErr("Failed to load dashboard data.");
@@ -43,7 +48,7 @@ export default function Dashboard() {
   const spent = expenses.reduce((s, e) => s + e.amount, 0);
   const settlement = canSeeFinance ? computeSettlement(expenses) : [];
 
-  const getMemberName = (uid: string) => event?.members.find((m) => m.uid === uid)?.name || "Member";
+  const getMemberName = (uid: string) => event?.members?.find((m) => m.uid === uid)?.name || "Member";
 
   if (loading && !event) {
     return <div className="p-4 text-center text-sm text-text-dim">Loading event dashboard…</div>;

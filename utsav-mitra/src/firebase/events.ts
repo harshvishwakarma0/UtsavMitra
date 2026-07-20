@@ -45,7 +45,7 @@ export async function getEvent(id: string): Promise<EventDoc | null> {
 }
 
 export async function updateEvent(id: string, patch: Partial<EventDoc>) {
-  const updateData: any = { ...patch };
+  const updateData: Record<string, unknown> = { ...patch };
   if (patch.members) {
     updateData.memberUids = Array.from(new Set(patch.members.map((m) => m.uid)));
   }
@@ -60,7 +60,7 @@ export async function addMemberToEvent(eventId: string, members: EventMember[]) 
   const e = await getEvent(eventId);
   if (!e) return;
   const memberUids = Array.from(new Set(members.map((m) => m.uid)));
-  await updateDoc(ev(eventId), { members, memberUids } as any);
+  await updateDoc(ev(eventId), { members, memberUids });
 }
 
 // ---- Expenses ----
@@ -81,7 +81,7 @@ export async function addTask(eventId: string, t: Omit<Task, "id">) {
   await addDoc(sub(eventId, "tasks"), t);
 }
 export async function updateTask(eventId: string, id: string, patch: Partial<Task>) {
-  await updateDoc(doc(db, "events", eventId, "tasks", id), patch as any);
+  await updateDoc(doc(db, "events", eventId, "tasks", id), patch);
 }
 export async function getTasks(eventId: string): Promise<Task[]> {
   const snap = await getDocs(sub(eventId, "tasks"));
@@ -96,7 +96,7 @@ export async function addShoppingItem(eventId: string, it: Omit<ShoppingItem, "i
   await addDoc(sub(eventId, "shopping"), it);
 }
 export async function updateShoppingItem(eventId: string, id: string, patch: Partial<ShoppingItem>) {
-  await updateDoc(doc(db, "events", eventId, "shopping", id), patch as any);
+  await updateDoc(doc(db, "events", eventId, "shopping", id), patch);
 }
 export async function getShopping(eventId: string): Promise<ShoppingItem[]> {
   const snap = await getDocs(sub(eventId, "shopping"));
@@ -144,7 +144,7 @@ export async function deleteTemplate(id: string) {
   await deleteDoc(doc(db, "templates", id));
 }
 export async function featureTemplate(id: string, featured: boolean) {
-  await updateDoc(doc(db, "templates", id), { featured } as any);
+  await updateDoc(doc(db, "templates", id), { featured });
 }
 
 // Seed event from template items with batched writes for speed and atomicity
