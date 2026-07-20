@@ -16,7 +16,10 @@ service cloud.firestore {
     function isEventMember(eventId) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/events/$(eventId)) &&
-        request.auth.uid in get(/databases/$(database)/documents/events/$(eventId)).data.members.uid;
+        (
+          request.auth.uid in get(/databases/$(database)/documents/events/$(eventId)).data.memberUids ||
+          request.auth.uid == get(/databases/$(database)/documents/events/$(eventId)).data.createdBy
+        );
     }
 
     function isEventOwner(eventId) {

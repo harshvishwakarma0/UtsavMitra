@@ -12,6 +12,13 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const requiredKeys = ["apiKey", "authDomain", "projectId"] as const;
+for (const key of requiredKeys) {
+  if (!firebaseConfig[key]) {
+    console.warn(`[Firebase Config Warning]: VITE_FIREBASE_${key.toUpperCase()} is missing in environment variables.`);
+  }
+}
+
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);

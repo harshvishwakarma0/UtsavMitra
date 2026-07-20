@@ -42,17 +42,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function loadProfile(u: User) {
     const ref = doc(db, "users", u.uid);
-    const snap = await getDoc(ref);
-    if (snap.exists()) setProfile(snap.data() as UserProfile);
-    else setProfile(null);
+    try {
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        setProfile(snap.data() as UserProfile);
+      } else {
+        const fallbackProfile: UserProfile = {
+          uid: u.uid,
+          email: u.email ?? "",
+          displayName: u.displayName || u.email?.split("@")[0] || "User",
+          role: "member",
+          ownedEventIds: [],
+          memberOfEventIds: [],
+          createdAt: Date.now(),
+        };
+        await setDoc(ref, fallbackProfile);
+        setProfile(fallbackProfile);
+      }
+    } catch (e) {
+      console.error("Failed to load user profile:", e);
+      setProfile({
+        uid: u.uid,
+        email: u.email ?? "",
+        displayName: u.displayName || u.email?.split("@")[0] || "User",
+        role: "member",
+        ownedEventIds: [],
+        memberOfEventIds: [],
+        createdAt: Date.now(),
+      });
+    }
   }
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      if (u) await loadProfile(u);
-      else setProfile(null);
-      setLoading(false);
+      try {
+        if (u) {
+          await loadProfile(u);
+        } else {
+          setProfile(null);
+        }
+      } catch (err) {
+        console.error("Auth state change error:", err);
+      } finally {
+        setLoading(false);
+      }
     });
     return unsub;
   }, []);

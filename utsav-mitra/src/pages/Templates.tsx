@@ -11,10 +11,23 @@ export default function Templates() {
   const [showEditor, setShowEditor] = useState(false);
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
   async function load() {
-    setTemplates(await getTemplates());
+    try {
+      setLoading(true);
+      setTemplates(await getTemplates());
+    } catch (e: any) {
+      console.error("Failed to load templates:", e);
+      setErr("Failed to load templates.");
+    } finally {
+      setLoading(false);
+    }
   }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -41,67 +54,166 @@ export default function Templates() {
 
   async function save() {
     if (!profile || !title.trim()) return;
-    const items = parseNotes();
-    await addTemplate({
-      title: title.trim(),
-      kind: "custom",
-      ownerUid: profile.uid,
-      ownerName: profile.displayName,
-      featured: false,
-      items,
-    });
-    setTitle("");
-    setNotes("");
-    setShowEditor(false);
-    load();
+    setBusy(true);
+    setErr("");
+    try {
+      const items = parseNotes();
+      await addTemplate({
+        title: title.trim(),
+        kind: "custom",
+        ownerUid: profile.uid,
+        ownerName: profile.displayName,
+        featured: false,
+        items,
+      });
+      setTitle("");
+      setNotes("");
+      setShowEditor(false);
+      await load();
+    } catch (e: any) {
+      console.error("Failed to save template:", e);
+      setErr(e?.message ?? "Failed to save template.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Are you sure you want to delete this template?")) return;
+    try {
+      await deleteTemplate(id);
+      await load();
+    } catch (e: any) {
+      console.error("Failed to delete template:", e);
+      setErr("Failed to delete template.");
+    }
+  }
+
+  async function handleFeature(id: string, featured: boolean) {
+    try {
+      await featureTemplate(id, featured);
+      await load();
+    } catch (e: any) {
+      console.error("Failed to feature template:", e);
+      setErr("Failed to update template.");
+    }
   }
 
   return (
     <div className="space-y-4 p-4 pb-24">
-      <h1 className="text-xl font-bold">Templates</h1>
-      <button onClick={() => setShowEditor((s) => !s)} className="w-full rounded-xl bg-primary p-3 font-semibold text-black">
-        + New Template (notepad)
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">Templates Library</h1>
+        <button onClick={() => nav("/")} className="text-sm font-medium text-primary hover:underline">
+          ← Back to Home
+        </button>
+      </div>
+
+      {err && <div className="rounded-lg bg-surface-2 p-3 text-sm text-danger">{err}</div>}
+
+      <button
+        onClick={() => setShowEditor((s) => !s)}
+        className="w-full rounded-xl bg-primary p-3 font-semibold text-black hover:opacity-90"
+      >
+        + New Template (Notepad)
       </button>
 
       {showEditor && (
-        <div className="space-y-2 rounded-xl border border-border bg-surface p-3">
-          <input className="w-full rounded-lg bg-surface-2 border border-border p-2 text-text" placeholder="Template title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <div className="space-y-2 rounded-xl border border-border bg-surface p-4">
+          <input
+            className="w-full rounded-lg bg-surface-2 border border-border p-2 text-text"
+            placeholder="Template title (e.g. Diwali Party Checklist)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
           <p className="text-xs text-text-dim">
-            One item per line. Prefix with "buy " for shopping, add (!, !!, !!!) for priority.
+            One item per line. Prefix with "buy " for shopping, add (!, !!, !!!) for task priority.
           </p>
           <textarea
-            className="h-48 w-full rounded-lg bg-surface-2 border border-border p-2 text-text font-mono text-sm"
-            placeholder={"Murti order (!!!)\nbuy flowers 300\nSound system (!!)"}
+            className="h-44 w-full rounded-lg bg-surface-2 border border-border p-2 text-text font-mono text-sm"
+            placeholder={"Murti order (!!!)\nbuy flowers 300\nSound system setup (!!)"}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
-          <button onClick={save} className="w-full rounded-lg bg-primary p-2 font-semibold text-black">Save Template</button>
+          <button
+            onClick={save}
+            disabled={busy}
+            className="w-full rounded-lg bg-primary p-2 font-semibold text-black disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save Template"}
+          </button>
         </div>
       )}
 
-      <div className="space-y-2">
-        {templates.map((t) => (
-          <div key={t.id} className="rounded-xl border border-border bg-surface p-3">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{t.title}</span>
-              <span className="text-xs text-text-dim">by {t.ownerName}{t.featured ? " ⭐" : ""}</span>
-            </div>
-            <div className="mt-1 text-xs text-text-dim">{t.items.length} items</div>
-            <div className="mt-2 flex gap-2">
-              <button onClick={() => nav("/")} className="rounded-lg bg-surface-2 border border-border px-2 py-1 text-xs">Use</button>
-              {(isSuperAdmin || t.ownerUid === profile?.uid) && (
-                <button onClick={() => deleteTemplate(t.id)} className="rounded-lg bg-surface-2 border border-border px-2 py-1 text-xs text-danger">Delete</button>
-              )}
-              {isSuperAdmin && (
-                <button onClick={() => featureTemplate(t.id, !t.featured)} className="rounded-lg bg-surface-2 border border-border px-2 py-1 text-xs">
-                  {t.featured ? "Unfeature" : "Feature"}
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-        {templates.length === 0 && <p className="text-text-dim">No templates yet.</p>}
-      </div>
+      {loading && templates.length === 0 ? (
+        <p className="text-center text-sm text-text-dim">Loading templates…</p>
+      ) : (
+        <div className="space-y-3">
+          {templates.map((t) => {
+            const isExpanded = expandedId === t.id;
+            return (
+              <div key={t.id} className="rounded-xl border border-border bg-surface p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-text">{t.title}</span>
+                  <span className="text-xs text-text-dim">
+                    by {t.ownerName}
+                    {t.featured ? " ⭐" : ""}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-text-dim">
+                  <span>{t.items.length} checklist items</span>
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : t.id)}
+                    className="text-primary hover:underline"
+                  >
+                    {isExpanded ? "Hide items ▲" : "Preview items ▼"}
+                  </button>
+                </div>
+
+                {/* Items Preview */}
+                {isExpanded && (
+                  <div className="rounded-lg bg-surface-2 p-3 text-xs space-y-1 my-2 border border-border">
+                    {t.items.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        {item.shopping ? (
+                          <span className="text-primary">🛒 Buy {item.shopping.name}</span>
+                        ) : (
+                          <span>☑️ {item.task?.title} ({item.task?.priority || "med"})</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2 border-t border-border/40">
+                  <button
+                    onClick={() => nav(`/?templateId=${t.id}`)}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-black hover:opacity-90"
+                  >
+                    Use Template
+                  </button>
+                  {(isSuperAdmin || t.ownerUid === profile?.uid) && (
+                    <button
+                      onClick={() => handleDelete(t.id)}
+                      className="rounded-lg bg-surface-2 border border-border px-3 py-1.5 text-xs text-danger hover:bg-danger/10"
+                    >
+                      Delete
+                    </button>
+                  )}
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => handleFeature(t.id, !t.featured)}
+                      className="rounded-lg bg-surface-2 border border-border px-3 py-1.5 text-xs text-text hover:bg-surface-2/80"
+                    >
+                      {t.featured ? "Unfeature" : "Feature"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {templates.length === 0 && <p className="text-center text-text-dim">No templates saved yet.</p>}
+        </div>
+      )}
     </div>
   );
 }

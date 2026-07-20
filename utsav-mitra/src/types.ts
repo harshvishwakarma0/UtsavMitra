@@ -31,6 +31,7 @@ export interface EventDoc {
   createdAt: number;
   totalBudget: number;
   members: EventMember[];
+  memberUids: string[];
   isRecurringCopy?: boolean;
 }
 

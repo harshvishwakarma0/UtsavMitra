@@ -15,7 +15,14 @@ import Templates from "@/pages/Templates";
 export default function App() {
   const { user, loading } = useAuth();
   if (loading) {
-    return <div className="grid h-full place-items-center text-text-dim">Loading…</div>;
+    return (
+      <div className="grid h-screen place-items-center bg-background text-text">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <p className="text-sm text-text-dim">Loading Utsav Mitra…</p>
+        </div>
+      </div>
+    );
   }
   if (!user) return <Login />;
   return (
