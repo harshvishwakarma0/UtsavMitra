@@ -136,7 +136,6 @@ export default function Members() {
           <div key={m.uid} className="flex items-center justify-between rounded-xl border border-border bg-surface p-3">
             <div>
               <div className="font-medium">{m.name}</div>
-              <div className="text-xs text-text-dim">{m.uid}</div>
             </div>
             <div className="flex items-center gap-2">
               {canManage ? (

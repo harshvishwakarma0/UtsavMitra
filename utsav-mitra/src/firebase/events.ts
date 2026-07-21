@@ -3,7 +3,6 @@ import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
   getDocs,
   orderBy,
   query,
@@ -13,7 +12,6 @@ import {
 import { db } from "@/firebase/config";
 import type {
   EventDoc,
-  EventMember,
   EventTemplate,
   Expense,
   GalleryPhoto,
@@ -22,7 +20,6 @@ import type {
   Task,
   TemplateItem,
 } from "@/types";
-import { ganpatiTemplate } from "@/templates/ganpati";
 
 const ev = (id: string) => doc(db, "events", id);
 const sub = (id: string, name: string) => collection(db, "events", id, name);
@@ -39,11 +36,6 @@ export async function createEvent(
   return ref.id;
 }
 
-export async function getEvent(id: string): Promise<EventDoc | null> {
-  const snap = await getDoc(ev(id));
-  return snap.exists() ? ({ id: snap.id, ...snap.data() } as EventDoc) : null;
-}
-
 export async function updateEvent(id: string, patch: Partial<EventDoc>) {
   const updateData: Record<string, unknown> = { ...patch };
   if (patch.members) {
@@ -54,13 +46,6 @@ export async function updateEvent(id: string, patch: Partial<EventDoc>) {
 
 export async function deleteEvent(eventId: string) {
   await deleteDoc(ev(eventId));
-}
-
-export async function addMemberToEvent(eventId: string, members: EventMember[]) {
-  const e = await getEvent(eventId);
-  if (!e) return;
-  const memberUids = Array.from(new Set(members.map((m) => m.uid)));
-  await updateDoc(ev(eventId), { members, memberUids });
 }
 
 // ---- Expenses ----
@@ -173,5 +158,3 @@ export async function seedFromTemplate(eventId: string, items: TemplateItem[]) {
   }
   await batch.commit();
 }
-
-export { ganpatiTemplate };
