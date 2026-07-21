@@ -28,11 +28,14 @@ export default function Expenses() {
   async function load() {
     try {
       setLoading(true);
-      if (!contextEvent) {
-        const e = await getDoc(doc(db, "events", eventId));
-        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      const [expensesData, eventSnap] = await Promise.all([
+        getExpenses(eventId),
+        !contextEvent ? getDoc(doc(db, "events", eventId)) : Promise.resolve(null),
+      ]);
+      setExpenses(expensesData);
+      if (!contextEvent && eventSnap?.exists()) {
+        setEvent({ id: eventSnap.id, ...eventSnap.data() } as EventDoc);
       }
-      setExpenses(await getExpenses(eventId));
     } catch (e: any) {
       console.error("Failed to load expenses:", e);
       setErr("Failed to load expenses data.");

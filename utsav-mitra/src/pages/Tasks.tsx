@@ -40,11 +40,14 @@ export default function Tasks() {
   async function load() {
     try {
       setLoading(true);
-      if (!contextEvent) {
-        const e = await getDoc(doc(db, "events", eventId));
-        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      const [tasksData, eventSnap] = await Promise.all([
+        getTasks(eventId),
+        !contextEvent ? getDoc(doc(db, "events", eventId)) : Promise.resolve(null),
+      ]);
+      setTasks(tasksData);
+      if (!contextEvent && eventSnap?.exists()) {
+        setEvent({ id: eventSnap.id, ...eventSnap.data() } as EventDoc);
       }
-      setTasks(await getTasks(eventId));
     } catch (e: any) {
       console.error("Failed to load tasks:", e);
       setErr("Failed to load tasks.");

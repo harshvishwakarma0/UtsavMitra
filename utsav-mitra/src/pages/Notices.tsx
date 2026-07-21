@@ -24,11 +24,14 @@ export default function Notices() {
   async function load() {
     try {
       setLoading(true);
-      if (!contextEvent) {
-        const e = await getDoc(doc(db, "events", eventId));
-        if (e.exists()) setEvent({ id: e.id, ...e.data() } as EventDoc);
+      const [noticesData, eventSnap] = await Promise.all([
+        getNotices(eventId),
+        !contextEvent ? getDoc(doc(db, "events", eventId)) : Promise.resolve(null),
+      ]);
+      setNotices(noticesData);
+      if (!contextEvent && eventSnap?.exists()) {
+        setEvent({ id: eventSnap.id, ...eventSnap.data() } as EventDoc);
       }
-      setNotices(await getNotices(eventId));
     } catch (e: any) {
       console.error("Failed to load notices:", e);
       setErr("Failed to load notices.");
