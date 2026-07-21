@@ -10,7 +10,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  runTransaction,
   setDoc,
 } from "firebase/firestore";
 import {
@@ -97,25 +96,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userRef = doc(db, "users", cred.user.uid);
     const usersCol = collection(db, "users");
 
-    let createdProfile: UserProfile | null = null;
-    await runTransaction(db, async (transaction) => {
-      const allSnap = await getDocs(usersCol);
-      const isFirst = allSnap.empty;
-      createdProfile = {
-        uid: cred.user.uid,
-        email,
-        displayName,
-        role: isFirst ? "superAdmin" : "member",
-        ownedEventIds: [],
-        memberOfEventIds: [],
-        createdAt: Date.now(),
-      };
-      transaction.set(userRef, createdProfile);
-    });
-
-    if (createdProfile) {
-      setProfile(createdProfile);
-    }
+    const allSnap = await getDocs(usersCol);
+    const isFirst = allSnap.empty;
+    const createdProfile: UserProfile = {
+      uid: cred.user.uid,
+      email,
+      displayName,
+      role: isFirst ? "superAdmin" : "member",
+      ownedEventIds: [],
+      memberOfEventIds: [],
+      createdAt: Date.now(),
+    };
+    await setDoc(userRef, createdProfile);
+    setProfile(createdProfile);
   }
 
   async function login(email: string, password: string) {

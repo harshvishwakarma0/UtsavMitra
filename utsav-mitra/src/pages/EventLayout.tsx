@@ -60,7 +60,7 @@ export default function EventLayout() {
         {tabs.map((t) => (
           <NavLink
             key={t.to}
-            to={`/event/${id}/${t.to}`}
+            to={t.to ? `/event/${id}/${t.to}` : `/event/${id}`}
             end={t.end}
             className={({ isActive }) =>
               `flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-medium transition-colors ${
