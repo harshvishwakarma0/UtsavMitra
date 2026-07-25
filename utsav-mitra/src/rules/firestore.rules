@@ -43,7 +43,13 @@ service cloud.firestore {
 
     // Events: members read; owner or super admin write.
     match /events/{eventId} {
-      allow read: if isEventMember(eventId) || isSuperAdmin();
+      // Read: member UIDs array check OR owner check OR super admin.
+      // For collection queries, resource.data is available per-document without get().
+      allow read: if isSignedIn() && (
+        request.auth.uid in resource.data.memberUids ||
+        request.auth.uid == resource.data.createdBy ||
+        isSuperAdmin()
+      );
       allow create: if isSuperAdmin() || (
         isSignedIn() &&
         request.resource.data.createdBy == request.auth.uid &&
