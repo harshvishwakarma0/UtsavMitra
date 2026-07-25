@@ -4,6 +4,7 @@
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   setDoc,
@@ -82,6 +83,28 @@ export async function repairOldInvite(eventId: string, email: string, invitedBy:
       await withTimeout(deleteDoc(d.ref), 10_000);
       await createInvite(eventId, normalizedEmail, invitedBy);
     }
+  }
+}
+
+// Repair memberUids by syncing from the members array.
+// Fixes old events where members were added but memberUids wasn't updated.
+export async function repairMemberUids(eventId: string): Promise<boolean> {
+  try {
+    const snap = await withTimeout(getDoc(doc(db, "events", eventId)), 10_000);
+    if (!snap.exists()) return false;
+    const data = snap.data();
+    const members: { uid: string }[] = data.members || [];
+    const memberUids: string[] = data.memberUids || [];
+    const missing = members.map((m) => m.uid).filter((uid) => uid && !memberUids.includes(uid));
+    if (missing.length === 0) return false;
+    console.log(`[repair] Adding ${missing.length} UIDs to memberUids for event ${eventId}`);
+    await withTimeout(updateDoc(doc(db, "events", eventId), {
+      memberUids: arrayUnion(...missing),
+    }), 10_000);
+    return true;
+  } catch (e: any) {
+    console.error(`[repair] Failed to repair memberUids for ${eventId}:`, e?.code, e?.message);
+    return false;
   }
 }
 
