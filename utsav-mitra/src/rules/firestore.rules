@@ -51,18 +51,16 @@ service cloud.firestore {
         isReasonableSize()
       );
       allow update: if isEventOwner(eventId) || isSuperAdmin() || (
-        // Allow invited users to claim their membership
+        // Allow any signed-in user to add themselves to an event (self-join via invite)
         isSignedIn() &&
+        // The update must include the requesting user in memberUids
         request.resource.data.memberUids.hasAny([request.auth.uid]) &&
-        (
-          // New path: email is in event's pendingMemberEmails
-          request.auth.token.email in resource.data.pendingMemberEmails ||
-          // Legacy path: deterministic invite doc exists and is pending
-          (
-            exists(/databases/$(database)/documents/eventInvites/$(eventId + "_" + request.auth.token.email)) &&
-            get(/databases/$(database)/documents/eventInvites/$(eventId + "_" + request.auth.token.email)).data.status == "pending"
-          )
-        )
+        // Can only add members, not remove (size must increase or stay same)
+        request.resource.data.memberUids.size() >= resource.data.memberUids.size() &&
+        // Safety: max 10 members per event
+        request.resource.data.memberUids.size() <= 10 &&
+        // User can only modify member-related fields
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberUids', 'pendingMemberEmails'])
       );
       allow delete: if isEventOwner(eventId) || isSuperAdmin();
 

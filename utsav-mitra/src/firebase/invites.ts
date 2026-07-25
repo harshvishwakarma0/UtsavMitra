@@ -95,28 +95,32 @@ export async function claimPendingInvites(uid: string, email: string, displayNam
   let snap;
   try {
     snap = await withTimeout(getDocs(q), 10_000);
-  } catch {
+    console.log(`[claim] Query found ${snap.docs.length} pending invites for ${normalizedEmail}`);
+  } catch (e: any) {
+    console.error(`[claim] Query failed for ${normalizedEmail}:`, e?.code, e?.message);
     return [];
   }
   const results: string[] = [];
   for (const docSnap of snap.docs) {
     const invite = docSnap.data() as EventInvite;
+    const inviteId = docSnap.id;
     try {
-      // Use arrayUnion to add member without reading the event first.
+      console.log(`[claim] Attempting to claim invite ${inviteId} for event ${invite.eventId} as ${uid}`);
       await withTimeout(updateDoc(doc(db, "events", invite.eventId), {
         members: arrayUnion({ uid, name: displayName, email: normalizedEmail, role: invite.role }),
         memberUids: arrayUnion(uid),
         pendingMemberEmails: arrayRemove(normalizedEmail),
       }), 10_000);
-      // Mark invite as claimed
-      await withTimeout(updateDoc(doc(db, "eventInvites", docSnap.id), {
+      console.log(`[claim] Event updated successfully for ${inviteId}`);
+      await withTimeout(updateDoc(doc(db, "eventInvites", inviteId), {
         status: "claimed",
         claimedBy: uid,
         claimedAt: Date.now(),
       }), 10_000);
+      console.log(`[claim] Invite marked as claimed: ${inviteId}`);
       results.push(invite.eventId);
-    } catch (e) {
-      console.error("Failed to claim invite:", invite.id, e);
+    } catch (e: any) {
+      console.error(`[claim] FAILED for invite ${inviteId} event ${invite.eventId}:`, e?.code, e?.message);
     }
   }
   return results;

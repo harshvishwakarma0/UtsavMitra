@@ -5,6 +5,7 @@ import type { Unsubscribe } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { deleteEvent, getTemplates, seedFromTemplate } from "@/firebase/events";
+import { repairOldInvite, claimPendingInvites, getEventInvites } from "@/firebase/invites";
 import { ganpatiTemplate } from "@/templates/ganpati";
 import type { EventDoc, EventTemplate } from "@/types";
 
@@ -25,6 +26,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [claiming, setClaiming] = useState(false);
+  const [claimResult, setClaimResult] = useState("");
 
   // Stable reference for template ID to avoid effect re-runs
   const templateIdRef = useRef(templateIdParam);
@@ -68,6 +71,42 @@ export default function Home() {
     );
     return () => { mounted = false; unsub?.(); };
   }, [user?.uid]);
+
+  // Auto-repair old invites for events this user owns
+  useEffect(() => {
+    if (!user?.uid || events.length === 0) return;
+    const owned = events.filter((e) => e.createdBy === user.uid);
+    for (const evt of owned) {
+      // Repair is best-effort, non-blocking
+      getEventInvites(evt.id).then((invList) => {
+        for (const inv of invList) {
+          const detId = `${evt.id}_${inv.email}`;
+          if (inv.id !== detId) {
+            repairOldInvite(evt.id, inv.email, user.uid).catch(() => {});
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [events, user?.uid]);
+
+  async function handleCheckInvites() {
+    if (!user || !user.email) return;
+    setClaiming(true);
+    setClaimResult("");
+    try {
+      const claimed = await claimPendingInvites(user.uid, user.email, profile?.displayName || user.email);
+      if (claimed.length > 0) {
+        setClaimResult(`Joined ${claimed.length} event(s)! Refreshing...`);
+        setTimeout(() => window.location.reload(), 1500);
+      } else {
+        setClaimResult("No pending invites found for " + user.email);
+      }
+    } catch (e: any) {
+      setClaimResult("Failed to check invites: " + (e?.message || "unknown error"));
+    } finally {
+      setClaiming(false);
+    }
+  }
 
   async function create() {
     if (!profile || !user || !title.trim()) {
@@ -152,6 +191,19 @@ export default function Home() {
       >
         + New Event
       </button>
+
+      {events.length === 0 && !loading && (
+        <button
+          onClick={handleCheckInvites}
+          disabled={claiming}
+          className="mb-4 w-full rounded-xl border border-primary/50 bg-surface p-3 font-medium text-primary hover:bg-surface-2 disabled:opacity-50"
+        >
+          {claiming ? "Checking..." : "Check for Invites"}
+        </button>
+      )}
+      {claimResult && (
+        <div className="mb-4 rounded-lg bg-surface-2 p-3 text-sm text-text">{claimResult}</div>
+      )}
 
       {showCreate && (
         <div className="mb-4 space-y-3 rounded-xl border border-border bg-surface p-4">
