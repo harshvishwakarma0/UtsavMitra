@@ -1,6 +1,6 @@
 ﻿import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { updateEvent } from "@/firebase/events";
@@ -28,6 +28,21 @@ export default function Members() {
     });
     return unsub;
   }, [eventId]);
+
+  // Auto-sync: detect members whose UIDs are missing from memberUids and fix them
+  useEffect(() => {
+    if (!event || !eventId) return;
+    const memberUids = event.memberUids || [];
+    const missingUids = event.members
+      .map((m) => m.uid)
+      .filter((uid) => uid && !memberUids.includes(uid));
+    if (missingUids.length > 0) {
+      console.log(`[sync] Found ${missingUids.length} members missing from memberUids, fixing...`);
+      updateDoc(doc(db, "events", eventId), {
+        memberUids: arrayUnion(...missingUids),
+      }).catch((e) => console.error("[sync] Failed to sync memberUids:", e));
+    }
+  }, [event, eventId]);
 
   // Load pending invites + auto-repair old-format invites
   useEffect(() => {
@@ -63,6 +78,14 @@ export default function Members() {
     if (!event || !targetEmail) return;
     setBusy(true);
     setErr("");
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(targetEmail)) {
+      setErr("Please enter a valid email address (e.g. name@example.com).");
+      setBusy(false);
+      return;
+    }
 
     if (event.members.some((m) => m.email === targetEmail)) {
       setErr("This person is already a member of this event.");
