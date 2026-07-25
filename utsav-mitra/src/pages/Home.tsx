@@ -36,9 +36,9 @@ export default function Home() {
     let unsub: Unsubscribe | undefined;
     let mounted = true;
 
-    (async () => {
-      try {
-        const tList = await getTemplates();
+    // Load templates in parallel (non-blocking, non-critical)
+    getTemplates()
+      .then((tList) => {
         if (!mounted) return;
         setTemplates(tList);
         const tid = templateIdRef.current;
@@ -50,21 +50,22 @@ export default function Home() {
             setSelectedTemplateId(found.id);
           }
         }
-      } catch {} // non-critical
+      })
+      .catch(() => {}); // non-critical
 
-      const q = query(collection(db, "events"), where("memberUids", "array-contains", user.uid));
-      unsub = onSnapshot(
-        q,
-        (snap) => {
-          if (!mounted) return;
-          const out: EventDoc[] = [];
-          snap.forEach((d) => out.push({ id: d.id, ...d.data() } as EventDoc));
-          setEvents(out);
-          setLoading(false);
-        },
-        () => { if (mounted) setLoading(false); },
-      );
-    })();
+    // Start event listener immediately (don't wait for templates)
+    const q = query(collection(db, "events"), where("memberUids", "array-contains", user.uid));
+    unsub = onSnapshot(
+      q,
+      (snap) => {
+        if (!mounted) return;
+        const out: EventDoc[] = [];
+        snap.forEach((d) => out.push({ id: d.id, ...d.data() } as EventDoc));
+        setEvents(out);
+        setLoading(false);
+      },
+      () => { if (mounted) setLoading(false); },
+    );
     return () => { mounted = false; unsub?.(); };
   }, [user?.uid]);
 
@@ -155,7 +156,7 @@ export default function Home() {
             className="w-full rounded-lg bg-surface-2 border border-border p-2 text-text"
             placeholder="Event title (e.g. Ganesh Utsav 2026)"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => { setTitle(e.target.value); if (err) setErr(""); }}
           />
           <div className="flex gap-2">
             {(["ganpati", "generic", "custom"] as const).map((k) => (

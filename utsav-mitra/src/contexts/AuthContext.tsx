@@ -8,7 +8,6 @@
 import {
   doc,
   getDoc,
-  runTransaction,
   setDoc,
 } from "firebase/firestore";
 import {
@@ -110,25 +109,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userRef = doc(db, "users", cred.user.uid);
     const metaRef = doc(db, "_meta", "appState");
 
-    const createdProfile = await runTransaction(db, async (tx) => {
-      const metaSnap = await tx.get(metaRef);
-      const isFirst = !metaSnap.exists() || !metaSnap.data()?.firstUserCreated;
-      const p: UserProfile = {
-        uid: cred.user.uid,
-        email,
-        displayName,
-        role: isFirst ? "superAdmin" : "member",
-        ownedEventIds: [],
-        memberOfEventIds: [],
-        createdAt: Date.now(),
-      };
-      tx.set(userRef, p);
-      if (isFirst) {
-        tx.set(metaRef, { firstUserCreated: true, firstUserUid: cred.user.uid, createdAt: Date.now() });
-      }
-      return p;
-    });
-    setProfile(createdProfile);
+    // Try to check if this is the first user; if _meta is inaccessible, default to member
+    let isFirst = false;
+    try {
+      const metaSnap = await getDoc(metaRef);
+      isFirst = !metaSnap.exists() || !metaSnap.data()?.firstUserCreated;
+    } catch {
+      // _meta rule may not be deployed yet - default to member
+    }
+
+    const profile: UserProfile = {
+      uid: cred.user.uid,
+      email,
+      displayName,
+      role: isFirst ? "superAdmin" : "member",
+      ownedEventIds: [],
+      memberOfEventIds: [],
+      createdAt: Date.now(),
+    };
+
+    await setDoc(userRef, profile);
+
+    if (isFirst) {
+      // Best-effort: mark first user in _meta (may fail if rule not deployed)
+      setDoc(metaRef, { firstUserCreated: true, firstUserUid: cred.user.uid, createdAt: Date.now() }).catch(() => {});
+    }
+
+    setProfile(profile);
     // Auto-claim invites right after signup
     claimPendingInvites(cred.user.uid, email, displayName).catch((err) =>
       console.error("Failed to claim invites after signup:", err),
