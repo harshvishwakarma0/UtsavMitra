@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import Login from "@/pages/Login";
 import Home from "@/pages/Home";
 
@@ -45,6 +46,7 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>
+      <InstallPrompt />
     </Suspense>
   );
 }

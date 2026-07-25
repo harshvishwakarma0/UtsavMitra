@@ -1,8 +1,7 @@
 import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { addTask, deleteTask, getTasks, updateTask } from "@/firebase/events";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { cn } from "@/lib/utils";
 import type { EventDoc, Task, TaskStatus, TaskPriority } from "@/types";
@@ -22,68 +21,61 @@ const priColor: Record<TaskPriority, string> = {
 export default function Tasks() {
   const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [deadline, setDeadline] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [assigneeUid, setAssigneeUid] = useState<string>("");
-  const [loading, setLoading] = useState(!contextEvent);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    if (contextEvent) setEvent(contextEvent);
-  }, [contextEvent]);
-
-  async function load() {
-    try {
-      setLoading(true);
-      const [tasksData, eventSnap] = await Promise.all([
-        getTasks(eventId),
-        !contextEvent ? getDoc(doc(db, "events", eventId)) : Promise.resolve(null),
-      ]);
-      setTasks(tasksData);
-      if (!contextEvent && eventSnap?.exists()) {
-        setEvent({ id: eventSnap.id, ...eventSnap.data() } as EventDoc);
+    setLoading(true);
+    setErr("");
+    return onSnapshot(
+      query(collection(db, "events", eventId, "tasks"), orderBy("createdAt", "desc")),
+      (snap) => {
+        setTasks(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Task));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Failed to load tasks:", error);
+        setErr("Failed to load tasks.");
+        setLoading(false);
       }
-    } catch (e: any) {
-      console.error("Failed to load tasks:", e);
-      setErr("Failed to load tasks.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    );
   }, [eventId]);
 
-  const members = event?.members ?? [];
+  const members = contextEvent?.members ?? [];
 
   async function add() {
     if (!profile || !title.trim()) return;
     setBusy(true);
     setErr("");
+    const taskRef = doc(collection(db, "events", eventId, "tasks"));
+    const newTask: Task = {
+      id: taskRef.id,
+      title: title.trim(),
+      status: "pending",
+      priority,
+      assignedTo: assigneeUid || profile.uid,
+      createdAt: Date.now(),
+      ...(description.trim() ? { description: description.trim() } : {}),
+      ...(deadline.trim() ? { deadline: deadline.trim() } : {}),
+    };
+    setTasks((previous) => [newTask, ...previous]);
     try {
-      await addTask(eventId, {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        deadline: deadline.trim() || undefined,
-        status: "pending",
-        priority,
-        assignedTo: assigneeUid || profile.uid,
-        createdAt: Date.now(),
-      });
+      const { id: _id, ...taskData } = newTask;
+      await setDoc(taskRef, taskData);
       setTitle("");
       setDescription("");
       setDeadline("");
       setAssigneeUid("");
-      await load();
     } catch (e: any) {
       console.error("Failed to add task:", e);
+      setTasks((previous) => previous.filter((task) => task.id !== newTask.id));
       setErr(e?.message ?? "Failed to add task.");
     } finally {
       setBusy(false);
@@ -91,11 +83,15 @@ export default function Tasks() {
   }
 
   async function setStatus(t: Task, status: TaskStatus) {
+    const previousStatus = t.status;
+    setTasks((previous) => previous.map((task) => (task.id === t.id ? { ...task, status } : task)));
     try {
-      await updateTask(eventId, t.id, { status });
-      await load();
+      await updateDoc(doc(db, "events", eventId, "tasks", t.id), { status });
     } catch (e: any) {
       console.error("Failed to update task status:", e);
+      setTasks((previous) =>
+        previous.map((task) => (task.id === t.id ? { ...task, status: previousStatus } : task))
+      );
       setErr("Failed to update status.");
     }
   }
@@ -112,11 +108,20 @@ export default function Tasks() {
 
   async function handleDelete(taskId: string) {
     if (!confirm("Delete this task?")) return;
+    const deletedIndex = tasks.findIndex((task) => task.id === taskId);
+    const deletedTask = tasks[deletedIndex];
+    if (!deletedTask) return;
+    setTasks((previous) => previous.filter((task) => task.id !== taskId));
     try {
-      await deleteTask(eventId, taskId);
-      await load();
+      await deleteDoc(doc(db, "events", eventId, "tasks", taskId));
     } catch (e: any) {
       console.error("Failed to delete task:", e);
+      setTasks((previous) => {
+        if (previous.some((task) => task.id === deletedTask.id)) return previous;
+        const next = [...previous];
+        next.splice(deletedIndex, 0, deletedTask);
+        return next;
+      });
       setErr("Failed to delete task.");
     }
   }
@@ -182,7 +187,15 @@ export default function Tasks() {
       </div>
 
       {loading && tasks.length === 0 ? (
-        <p className="text-center text-sm text-text-dim">Loading tasks…</p>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {columns.map((column) => (
+            <div key={column.status} className="space-y-3 rounded-xl border border-border bg-surface p-3">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-28" />
+              <Skeleton className="h-24" />
+            </div>
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {columns.map((col) => {
@@ -206,7 +219,7 @@ export default function Tasks() {
                       draggable
                       onDragStart={(e) => e.dataTransfer.setData("text/plain", t.id)}
                       className={cn(
-                        "cursor-grab active:cursor-grabbing rounded-lg border border-border bg-surface-2 p-3.5 space-y-2 transition-all hover:border-primary/40",
+                        "animate-fade-in cursor-grab active:cursor-grabbing rounded-lg border border-border bg-surface-2 p-3.5 space-y-2 transition-all hover:border-primary/40",
                         t.status === "done" && "opacity-70"
                       )}
                     >
@@ -273,4 +286,8 @@ export default function Tasks() {
       )}
     </div>
   );
+}
+
+function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />;
 }

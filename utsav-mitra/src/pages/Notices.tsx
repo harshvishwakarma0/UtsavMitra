@@ -1,69 +1,61 @@
 import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { addNotice, deleteNotice, getNotices } from "@/firebase/events";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import type { EventDoc, Notice } from "@/types";
 
 export default function Notices() {
   const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [loading, setLoading] = useState(!contextEvent);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    if (contextEvent) setEvent(contextEvent);
-  }, [contextEvent]);
-
-  async function load() {
-    try {
-      setLoading(true);
-      const [noticesData, eventSnap] = await Promise.all([
-        getNotices(eventId),
-        !contextEvent ? getDoc(doc(db, "events", eventId)) : Promise.resolve(null),
-      ]);
-      setNotices(noticesData);
-      if (!contextEvent && eventSnap?.exists()) {
-        setEvent({ id: eventSnap.id, ...eventSnap.data() } as EventDoc);
+    setLoading(true);
+    setErr("");
+    return onSnapshot(
+      query(collection(db, "events", eventId, "notices"), orderBy("createdAt", "desc")),
+      (snap) => {
+        setNotices(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Notice));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Failed to load notices:", error);
+        setErr("Failed to load notices.");
+        setLoading(false);
       }
-    } catch (e: any) {
-      console.error("Failed to load notices:", e);
-      setErr("Failed to load notices.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    );
   }, [eventId]);
 
-  const members = event?.members ?? [];
+  const members = contextEvent?.members ?? [];
   const getMemberName = (uid: string) => members.find((m) => m.uid === uid)?.name || "Team Member";
 
   async function post() {
     if (!profile || !title.trim()) return;
     setBusy(true);
     setErr("");
+    const noticeRef = doc(collection(db, "events", eventId, "notices"));
+    const newNotice: Notice = {
+      id: noticeRef.id,
+      title: title.trim(),
+      content: content.trim(),
+      createdBy: profile.uid,
+      createdAt: Date.now(),
+    };
+    setNotices((previous) => [newNotice, ...previous]);
     try {
-      await addNotice(eventId, {
-        title: title.trim(),
-        content: content.trim(),
-        createdBy: profile.uid,
-        createdAt: Date.now(),
-      });
+      const { id: _id, ...noticeData } = newNotice;
+      await setDoc(noticeRef, noticeData);
       setTitle("");
       setContent("");
-      await load();
     } catch (e: any) {
       console.error("Failed to post notice:", e);
+      setNotices((previous) => previous.filter((notice) => notice.id !== newNotice.id));
       setErr(e?.message ?? "Failed to post notice.");
     } finally {
       setBusy(false);
@@ -72,11 +64,20 @@ export default function Notices() {
 
   async function handleDelete(noticeId: string) {
     if (!confirm("Are you sure you want to delete this notice?")) return;
+    const deletedIndex = notices.findIndex((notice) => notice.id === noticeId);
+    const deletedNotice = notices[deletedIndex];
+    if (!deletedNotice) return;
+    setNotices((previous) => previous.filter((notice) => notice.id !== noticeId));
     try {
-      await deleteNotice(eventId, noticeId);
-      await load();
+      await deleteDoc(doc(db, "events", eventId, "notices", noticeId));
     } catch (e: any) {
       console.error("Failed to delete notice:", e);
+      setNotices((previous) => {
+        if (previous.some((notice) => notice.id === deletedNotice.id)) return previous;
+        const next = [...previous];
+        next.splice(deletedIndex, 0, deletedNotice);
+        return next;
+      });
       setErr("Failed to delete notice.");
     }
   }
@@ -110,11 +111,15 @@ export default function Notices() {
       </div>
 
       {loading && notices.length === 0 ? (
-        <p className="text-center text-sm text-text-dim">Loading notices…</p>
+        <div className="space-y-3">
+          <Skeleton className="h-28" />
+          <Skeleton className="h-28" />
+          <Skeleton className="h-28" />
+        </div>
       ) : (
         <div className="space-y-3">
           {notices.map((n) => (
-            <div key={n.id} className="rounded-xl border border-border bg-surface p-4 space-y-2">
+            <div key={n.id} className="animate-fade-in rounded-xl border border-border bg-surface p-4 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <h2 className="font-semibold text-text text-base">{n.title}</h2>
                 {profile?.uid === n.createdBy && (
@@ -139,4 +144,8 @@ export default function Notices() {
       )}
     </div>
   );
+}
+
+function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />;
 }

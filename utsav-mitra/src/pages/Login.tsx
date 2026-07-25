@@ -43,7 +43,7 @@ export default function Login() {
     <div className="grid h-screen place-items-center bg-background p-6">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-2xl border border-border bg-surface p-6 shadow-xl">
         <div className="text-center">
-          <div className="text-4xl mb-2">ॐ</div>
+          <div className="text-4xl mb-2">{'\uD83D\uDE4F'}</div>
           <h1 className="text-2xl font-bold text-primary">Utsav Mitra</h1>
           <p className="text-sm text-text-dim">
             {mode === "login" ? "Login to your events" : "Create your account"}
@@ -96,11 +96,10 @@ export default function Login() {
 
         {err && <p className="text-sm text-danger">{err}</p>}
 
-        <button
-          className="w-full rounded-xl bg-primary p-3 font-semibold text-black hover:opacity-90 disabled:opacity-50"
+        <button type="submit" className="w-full rounded-xl bg-primary p-3 font-semibold text-black hover:opacity-90 disabled:opacity-50"
           disabled={busy}
         >
-          {busy ? "Please wait…" : mode === "login" ? "Login" : "Sign up"}
+          {busy ? "Please wait\u2026" : mode === "login" ? "Login" : "Sign up"}
         </button>
 
         <button

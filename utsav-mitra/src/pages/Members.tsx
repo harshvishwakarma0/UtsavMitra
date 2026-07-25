@@ -1,42 +1,40 @@
-import { useOutletContext } from "react-router-dom";
+﻿import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { updateEvent } from "@/firebase/events";
-import type { EventDoc, EventMember, EventMemberRole } from "@/types";
+import { createInvite, getEventInvites, cancelInvite } from "@/firebase/invites";
+import type { EventDoc, EventMemberRole } from "@/types";
+import type { EventInvite } from "@/firebase/invites";
 
 export default function Members() {
   const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile, isSuperAdmin } = useAuth();
   const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(!contextEvent);
+  const [loading] = useState(!contextEvent);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [invites, setInvites] = useState<EventInvite[]>([]);
 
+  // Real-time listener for event doc (keeps membership in sync)
   useEffect(() => {
-    if (contextEvent) setEvent(contextEvent);
-  }, [contextEvent]);
-
-  async function load() {
-    try {
-      setLoading(true);
-      const e = await getDoc(doc(db, "events", eventId));
-      if (e.exists()) {
-        setEvent({ id: e.id, ...e.data() } as EventDoc);
+    if (!eventId) return;
+    const unsub = onSnapshot(doc(db, "events", eventId), (snap) => {
+      if (snap.exists()) {
+        setEvent({ id: snap.id, ...snap.data() } as EventDoc);
       }
-    } catch (e: any) {
-      console.error("Failed to load event members:", e);
-      setErr("Failed to load team members.");
-    } finally {
-      setLoading(false);
-    }
-  }
+    });
+    return unsub;
+  }, [eventId]);
 
+  // Load pending invites
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!eventId) return;
+    getEventInvites(eventId)
+      .then(setInvites)
+      .catch((e) => console.error("Failed to load invites:", e));
   }, [eventId]);
 
   const myRole = event?.members.find((m) => m.uid === profile?.uid)?.role;
@@ -48,34 +46,33 @@ export default function Members() {
     setBusy(true);
     setErr("");
     try {
-      // Look up user in Firestore users collection
       const q = query(collection(db, "users"), where("email", "==", targetEmail));
       const snap = await getDocs(q);
-      
-      let memberUid = targetEmail;
-      let memberName = targetEmail.split("@")[0];
 
       if (!snap.empty) {
         const userDoc = snap.docs[0].data();
-        memberUid = userDoc.uid || targetEmail;
-        memberName = userDoc.displayName || memberName;
+        const memberUid = userDoc.uid;
+        const memberName = userDoc.displayName || targetEmail.split("@")[0];
+
+        if (event.members.some((m) => m.uid === memberUid)) {
+          setErr("Member is already in this event.");
+          return;
+        }
+        await updateEvent(eventId, {
+          members: [...event.members, { uid: memberUid, name: memberName, role: "member" }],
+        });
       } else {
-        setErr(`User with email "${targetEmail}" has not registered yet. Added by email.`);
+        if (event.members.some((m) => m.uid === targetEmail)) {
+          setErr("This email was already added (previously unregistered).");
+          return;
+        }
+        const inviteId = await createInvite(eventId, targetEmail, profile?.uid ?? "");
+        setInvites((prev) => [
+          ...prev,
+          { id: inviteId, eventId, email: targetEmail, invitedBy: profile?.uid ?? "", role: "member", status: "pending", createdAt: Date.now() },
+        ]);
       }
-
-      // Avoid duplicates
-      if (event.members.some((m) => m.uid === memberUid)) {
-        setErr("Member is already in this event.");
-        return;
-      }
-
-      const members: EventMember[] = [
-        ...event.members,
-        { uid: memberUid, name: memberName, role: "member" },
-      ];
-      await updateEvent(eventId, { members });
       setEmail("");
-      await load();
     } catch (e: any) {
       console.error("Failed to add member:", e);
       setErr(e?.message ?? "Failed to add member.");
@@ -89,7 +86,6 @@ export default function Members() {
     try {
       const members = event.members.map((m) => (m.uid === uid ? { ...m, role } : m));
       await updateEvent(eventId, { members });
-      await load();
     } catch (e: any) {
       console.error("Failed to update role:", e);
       setErr("Failed to update member role.");
@@ -101,10 +97,20 @@ export default function Members() {
     try {
       const members = event.members.filter((m) => m.uid !== uid);
       await updateEvent(eventId, { members });
-      await load();
     } catch (e: any) {
       console.error("Failed to remove member:", e);
       setErr("Failed to remove member.");
+    }
+  }
+
+  async function handleCancelInvite(inviteId: string) {
+    if (!confirm("Cancel this invite?")) return;
+    try {
+      await cancelInvite(inviteId);
+      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+    } catch (e: any) {
+      console.error("Failed to cancel invite:", e);
+      setErr("Failed to cancel invite.");
     }
   }
 
@@ -132,6 +138,7 @@ export default function Members() {
       )}
 
       <div className="space-y-2">
+        <div className="text-sm font-semibold text-text-dim">Active Members</div>
         {event.members.map((m) => (
           <div key={m.uid} className="flex items-center justify-between rounded-xl border border-border bg-surface p-3">
             <div>
@@ -166,6 +173,29 @@ export default function Members() {
           </div>
         ))}
       </div>
+
+      {invites.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-text-dim">Pending Invites</div>
+          {invites.map((inv) => (
+            <div key={inv.id} className="flex items-center justify-between rounded-xl border border-dashed border-border bg-surface-2 p-3 opacity-80">
+              <div>
+                <div className="font-medium">{inv.email}</div>
+                <div className="text-xs text-text-dim">Waiting for signup…</div>
+              </div>
+              {canManage && (
+                <button
+                  onClick={() => handleCancelInvite(inv.id)}
+                  className="rounded-lg bg-surface-2 border border-border p-1 text-xs text-danger hover:bg-danger/10"
+                  title="Cancel Invite"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

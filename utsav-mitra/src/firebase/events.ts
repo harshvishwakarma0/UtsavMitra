@@ -4,12 +4,14 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  getDoc,
   orderBy,
   query,
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
-import { db } from "@/firebase/config";
+import { ref, listAll, deleteObject } from "firebase/storage";
+import { db, storage } from "@/firebase/config";
 import type {
   EventDoc,
   EventTemplate,
@@ -45,6 +47,21 @@ export async function updateEvent(id: string, patch: Partial<EventDoc>) {
 }
 
 export async function deleteEvent(eventId: string) {
+  const subNames = ["expenses", "tasks", "shopping", "notices", "gallery"];
+  for (const name of subNames) {
+    const snap = await getDocs(sub(eventId, name));
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    if (snap.docs.length > 0) await batch.commit();
+  }
+  // Clean up Storage files for this event
+  try {
+    const folderRef = ref(storage, `events/${eventId}`);
+    const list = await listAll(folderRef);
+    for (const item of list.items) {
+      await deleteObject(item).catch(() => {});
+    }
+  } catch { /* folder may not exist */ }
   await deleteDoc(ev(eventId));
 }
 
@@ -114,6 +131,21 @@ export async function getGallery(eventId: string): Promise<GalleryPhoto[]> {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as GalleryPhoto));
 }
 export async function deletePhoto(eventId: string, photoId: string) {
+  // Try to delete the Storage file first
+  try {
+    const snap = await getDoc(doc(db, "events", eventId, "gallery", photoId));
+    if (snap.exists()) {
+      const data = snap.data() as { url?: string };
+      if (data.url) {
+        // Extract storage path from download URL
+        const match = data.url.match(/\/o\/(.+?)\?/);
+        if (match) {
+          const path = decodeURIComponent(match[1]);
+          await deleteObject(ref(storage, path)).catch(() => {});
+        }
+      }
+    }
+  } catch { /* best effort */ }
   await deleteDoc(doc(db, "events", eventId, "gallery", photoId));
 }
 

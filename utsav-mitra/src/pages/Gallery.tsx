@@ -1,9 +1,10 @@
 import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { addPhoto, deletePhoto, getGallery } from "@/firebase/events";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "@/firebase/config";
+import { deletePhoto } from "@/firebase/events";
+import { collection, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
+import { deleteObject, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db, storage } from "@/firebase/config";
 import type { GalleryPhoto } from "@/types";
 
 export default function Gallery() {
@@ -15,21 +16,21 @@ export default function Gallery() {
   const [err, setErr] = useState("");
   const [previewPhoto, setPreviewPhoto] = useState<GalleryPhoto | null>(null);
 
-  async function load() {
-    try {
-      setLoading(true);
-      setPhotos(await getGallery(eventId));
-    } catch (e: any) {
-      console.error("Failed to load gallery:", e);
-      setErr("Failed to load photos.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLoading(true);
+    setErr("");
+    return onSnapshot(
+      query(collection(db, "events", eventId, "gallery"), orderBy("createdAt", "desc")),
+      (snap) => {
+        setPhotos(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as GalleryPhoto));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Failed to load gallery:", error);
+        setErr("Failed to load photos.");
+        setLoading(false);
+      }
+    );
   }, [eventId]);
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -37,15 +38,23 @@ export default function Gallery() {
     if (!file || !profile) return;
     setBusy(true);
     setErr("");
+    let uploadedRef: ReturnType<typeof ref> | undefined;
+    let newPhoto: GalleryPhoto | undefined;
     try {
       const resized = await resizeImage(file, 1024);
       const path = `events/${eventId}/gallery/${Date.now()}_${file.name}`;
-      await uploadBytes(ref(storage, path), resized);
-      const url = await getDownloadURL(ref(storage, path));
-      await addPhoto(eventId, { url, uploadedBy: profile.uid, createdAt: Date.now() });
-      await load();
+      uploadedRef = ref(storage, path);
+      await uploadBytes(uploadedRef, resized);
+      const url = await getDownloadURL(uploadedRef);
+      const photoRef = doc(collection(db, "events", eventId, "gallery"));
+      newPhoto = { id: photoRef.id, url, uploadedBy: profile.uid, createdAt: Date.now() };
+      setPhotos((previous) => [newPhoto!, ...previous]);
+      const { id: _id, ...photoData } = newPhoto;
+      await setDoc(photoRef, photoData);
     } catch (e: any) {
       console.error("Upload error:", e);
+      if (newPhoto) setPhotos((previous) => previous.filter((photo) => photo.id !== newPhoto!.id));
+      if (uploadedRef) await deleteObject(uploadedRef).catch(() => {});
       setErr(e?.message ?? "Failed to upload photo.");
     } finally {
       setBusy(false);
@@ -56,12 +65,21 @@ export default function Gallery() {
   async function handleDelete(photoId: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!confirm("Are you sure you want to delete this photo?")) return;
+    const deletedIndex = photos.findIndex((photo) => photo.id === photoId);
+    const deletedPhoto = photos[deletedIndex];
+    if (!deletedPhoto) return;
+    setPhotos((previous) => previous.filter((photo) => photo.id !== photoId));
     try {
       await deletePhoto(eventId, photoId);
       if (previewPhoto?.id === photoId) setPreviewPhoto(null);
-      await load();
     } catch (e: any) {
       console.error("Failed to delete photo:", e);
+      setPhotos((previous) => {
+        if (previous.some((photo) => photo.id === deletedPhoto.id)) return previous;
+        const next = [...previous];
+        next.splice(deletedIndex, 0, deletedPhoto);
+        return next;
+      });
       setErr("Failed to delete photo.");
     }
   }
@@ -78,14 +96,19 @@ export default function Gallery() {
       </label>
 
       {loading && photos.length === 0 ? (
-        <p className="text-center text-sm text-text-dim">Loading photos…</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Skeleton className="aspect-square" />
+          <Skeleton className="aspect-square" />
+          <Skeleton className="aspect-square" />
+          <Skeleton className="aspect-square" />
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {photos.map((p) => (
             <div
               key={p.id}
               onClick={() => setPreviewPhoto(p)}
-              className="group relative cursor-pointer overflow-hidden rounded-xl border border-border bg-surface"
+              className="animate-fade-in group relative cursor-pointer overflow-hidden rounded-xl border border-border bg-surface"
             >
               <img
                 src={p.url}
@@ -159,4 +182,8 @@ function resizeImage(file: File, max: number): Promise<Blob> {
     };
     img.src = objectUrl;
   });
+}
+
+function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />;
 }

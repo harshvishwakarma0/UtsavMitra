@@ -1,4 +1,4 @@
-import {
+﻿import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
@@ -6,10 +6,9 @@ import {
   type User,
 } from "firebase/auth";
 import {
-  collection,
   doc,
   getDoc,
-  getDocs,
+  runTransaction,
   setDoc,
 } from "firebase/firestore";
 import {
@@ -20,6 +19,7 @@ import {
   type ReactNode,
 } from "react";
 import { auth, db } from "@/firebase/config";
+import { claimPendingInvites } from "@/firebase/invites";
 import type { UserProfile } from "@/types";
 
 interface AuthCtx {
@@ -40,28 +40,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(u: User) {
+  async function loadAndClaim(u: User) {
+    const currentProfile = await loadProfile(u);
+    // Auto-claim any pending invites for this user's email
+    if (u.email) {
+      claimPendingInvites(u.uid, u.email, currentProfile.displayName).catch((err) =>
+        console.error("Failed to claim pending invites:", err),
+      );
+    }
+  }
+
+  async function loadProfile(u: User): Promise<UserProfile> {
     const ref = doc(db, "users", u.uid);
     try {
       const snap = await getDoc(ref);
       if (snap.exists()) {
-        setProfile(snap.data() as UserProfile);
-      } else {
-        const fallbackProfile: UserProfile = {
-          uid: u.uid,
-          email: u.email ?? "",
-          displayName: u.displayName || u.email?.split("@")[0] || "User",
-          role: "member",
-          ownedEventIds: [],
-          memberOfEventIds: [],
-          createdAt: Date.now(),
-        };
-        await setDoc(ref, fallbackProfile);
-        setProfile(fallbackProfile);
+        const p = snap.data() as UserProfile;
+        setProfile(p);
+        return p;
       }
-    } catch (e) {
-      console.error("Failed to load user profile:", e);
-      setProfile({
+      const fallback: UserProfile = {
         uid: u.uid,
         email: u.email ?? "",
         displayName: u.displayName || u.email?.split("@")[0] || "User",
@@ -69,7 +67,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ownedEventIds: [],
         memberOfEventIds: [],
         createdAt: Date.now(),
-      });
+      };
+      await setDoc(ref, fallback);
+      setProfile(fallback);
+      return fallback;
+    } catch (e) {
+      console.error("Failed to load user profile:", e);
+      const fallback: UserProfile = {
+        uid: u.uid,
+        email: u.email ?? "",
+        displayName: u.displayName || u.email?.split("@")[0] || "User",
+        role: "member",
+        ownedEventIds: [],
+        memberOfEventIds: [],
+        createdAt: Date.now(),
+      };
+      setProfile(fallback);
+      return fallback;
     }
   }
 
@@ -78,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
       try {
         if (u) {
-          await loadProfile(u);
+          await loadAndClaim(u);
         } else {
           setProfile(null);
         }
@@ -94,21 +108,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signup(email: string, password: string, displayName: string) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
     const userRef = doc(db, "users", cred.user.uid);
-    const usersCol = collection(db, "users");
+    const metaRef = doc(db, "_meta", "appState");
 
-    const allSnap = await getDocs(usersCol);
-    const isFirst = allSnap.empty;
-    const createdProfile: UserProfile = {
-      uid: cred.user.uid,
-      email,
-      displayName,
-      role: isFirst ? "superAdmin" : "member",
-      ownedEventIds: [],
-      memberOfEventIds: [],
-      createdAt: Date.now(),
-    };
-    await setDoc(userRef, createdProfile);
+    const createdProfile = await runTransaction(db, async (tx) => {
+      const metaSnap = await tx.get(metaRef);
+      const isFirst = !metaSnap.exists() || !metaSnap.data()?.firstUserCreated;
+      const p: UserProfile = {
+        uid: cred.user.uid,
+        email,
+        displayName,
+        role: isFirst ? "superAdmin" : "member",
+        ownedEventIds: [],
+        memberOfEventIds: [],
+        createdAt: Date.now(),
+      };
+      tx.set(userRef, p);
+      if (isFirst) {
+        tx.set(metaRef, { firstUserCreated: true, firstUserUid: cred.user.uid, createdAt: Date.now() });
+      }
+      return p;
+    });
     setProfile(createdProfile);
+    // Auto-claim invites right after signup
+    claimPendingInvites(cred.user.uid, email, displayName).catch((err) =>
+      console.error("Failed to claim invites after signup:", err),
+    );
   }
 
   async function login(email: string, password: string) {
@@ -120,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function refreshProfile() {
-    if (user) await loadProfile(user);
+    if (user) await loadAndClaim(user);
   }
 
   return (

@@ -1,8 +1,7 @@
 import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { addExpense, deleteExpense, getExpenses } from "@/firebase/events";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { computeSettlement, netForMember } from "@/lib/settlement";
 import type { EventDoc, Expense, SplitEntry } from "@/types";
@@ -10,46 +9,34 @@ import type { EventDoc, Expense, SplitEntry } from "@/types";
 export default function Expenses() {
   const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
   const { profile } = useAuth();
-  const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState(0);
   const [category, setCategory] = useState("Decoration");
   const [splitMode, setSplitMode] = useState<"equal" | "custom">("equal");
   const [customAmounts, setCustomAmounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(!contextEvent);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    if (contextEvent) setEvent(contextEvent);
-  }, [contextEvent]);
-
-  async function load() {
-    try {
-      setLoading(true);
-      const [expensesData, eventSnap] = await Promise.all([
-        getExpenses(eventId),
-        !contextEvent ? getDoc(doc(db, "events", eventId)) : Promise.resolve(null),
-      ]);
-      setExpenses(expensesData);
-      if (!contextEvent && eventSnap?.exists()) {
-        setEvent({ id: eventSnap.id, ...eventSnap.data() } as EventDoc);
+    setLoading(true);
+    setErr("");
+    return onSnapshot(
+      query(collection(db, "events", eventId, "expenses"), orderBy("date", "desc")),
+      (snap) => {
+        setExpenses(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Expense));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Failed to load expenses:", error);
+        setErr("Failed to load expenses data.");
+        setLoading(false);
       }
-    } catch (e: any) {
-      console.error("Failed to load expenses:", e);
-      setErr("Failed to load expenses data.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    );
   }, [eventId]);
 
-  const members = event?.members ?? [];
+  const members = contextEvent?.members ?? [];
 
   function buildSplit(): { split: SplitEntry[]; valid: boolean; message?: string } {
     if (members.length === 0) return { split: [], valid: true };
@@ -98,22 +85,27 @@ export default function Expenses() {
 
     setBusy(true);
     setErr("");
+    const expenseRef = doc(collection(db, "events", eventId, "expenses"));
+    const newExpense: Expense = {
+      id: expenseRef.id,
+      title: title.trim(),
+      amount,
+      category: category.trim() || "General",
+      paidBy: profile.uid,
+      date: Date.now(),
+      splitMode,
+      split: splitResult.split,
+    };
+    setExpenses((previous) => [newExpense, ...previous]);
     try {
-      await addExpense(eventId, {
-        title: title.trim(),
-        amount,
-        category: category.trim() || "General",
-        paidBy: profile.uid,
-        date: Date.now(),
-        splitMode,
-        split: splitResult.split,
-      });
+      const { id: _id, ...expenseData } = newExpense;
+      await setDoc(expenseRef, expenseData);
       setTitle("");
       setAmount(0);
       setCustomAmounts({});
-      await load();
     } catch (e: any) {
       console.error("Failed to add expense:", e);
+      setExpenses((previous) => previous.filter((expense) => expense.id !== newExpense.id));
       setErr(e?.message ?? "Failed to add expense.");
     } finally {
       setBusy(false);
@@ -122,11 +114,20 @@ export default function Expenses() {
 
   async function handleDelete(expenseId: string) {
     if (!confirm("Are you sure you want to delete this expense?")) return;
+    const deletedIndex = expenses.findIndex((expense) => expense.id === expenseId);
+    const deletedExpense = expenses[deletedIndex];
+    if (!deletedExpense) return;
+    setExpenses((previous) => previous.filter((expense) => expense.id !== expenseId));
     try {
-      await deleteExpense(eventId, expenseId);
-      await load();
+      await deleteDoc(doc(db, "events", eventId, "expenses", expenseId));
     } catch (e: any) {
       console.error("Failed to delete expense:", e);
+      setExpenses((previous) => {
+        if (previous.some((expense) => expense.id === deletedExpense.id)) return previous;
+        const next = [...previous];
+        next.splice(deletedIndex, 0, deletedExpense);
+        return next;
+      });
       setErr("Failed to delete expense.");
     }
   }
@@ -221,11 +222,15 @@ export default function Expenses() {
       </div>
 
       {loading && expenses.length === 0 ? (
-        <p className="text-center text-sm text-text-dim">Loading expenses…</p>
+        <div className="space-y-3">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
       ) : (
         <div className="space-y-2">
           {expenses.map((e) => (
-            <div key={e.id} className="flex items-center justify-between rounded-xl border border-border bg-surface p-3">
+            <div key={e.id} className="animate-fade-in flex items-center justify-between rounded-xl border border-border bg-surface p-3">
               <div>
                 <div className="font-medium">{e.title}</div>
                 <div className="text-xs text-text-dim">
@@ -249,4 +254,8 @@ export default function Expenses() {
       )}
     </div>
   );
+}
+
+function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />;
 }

@@ -3,10 +3,15 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getExpenses, getTasks, getNotices } from "@/firebase/events";
 import { computeSettlement } from "@/lib/settlement";
+import type { EventSubcollectionCounts } from "@/pages/EventLayout";
 import type { EventDoc, Expense, Task, Notice } from "@/types";
 
 export default function Dashboard() {
-  const { event: contextEvent, eventId } = useOutletContext<{ event?: EventDoc; eventId: string }>();
+  const { event: contextEvent, eventId, subcollectionCounts } = useOutletContext<{
+    event?: EventDoc;
+    eventId: string;
+    subcollectionCounts: EventSubcollectionCounts;
+  }>();
   const { profile } = useAuth();
   const nav = useNavigate();
   const [event, setEvent] = useState<EventDoc | null>(contextEvent || null);
@@ -67,6 +72,16 @@ export default function Dashboard() {
         </div>
       )}
 
+      <Section title="Event overview">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <CountBadge label="Expenses" count={subcollectionCounts.expenses} onClick={() => nav("expenses")} />
+          <CountBadge label="Tasks" count={subcollectionCounts.tasks} onClick={() => nav("tasks")} />
+          <CountBadge label="Shopping" count={subcollectionCounts.shopping} onClick={() => nav("shopping")} />
+          <CountBadge label="Notices" count={subcollectionCounts.notices} onClick={() => nav("notices")} />
+          <CountBadge label="Photos" count={subcollectionCounts.gallery} onClick={() => nav("gallery")} />
+        </div>
+      </Section>
+
       <Section title={`Tasks for you (${myTasks.length})`}>
         {myTasks.length === 0 ? (
           <p className="text-text-dim text-sm">Nothing assigned. 🎉</p>
@@ -125,5 +140,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <div className="mb-2 text-sm font-semibold text-primary">{title}</div>
       {children}
     </div>
+  );
+}
+
+function CountBadge({ label, count, onClick }: { label: string; count: number; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="rounded-lg bg-surface-2 p-2 text-left transition-colors hover:bg-primary/15">
+      <div className="text-lg font-bold text-primary">{count}</div>
+      <div className="text-xs text-text-dim">{label}</div>
+    </button>
   );
 }

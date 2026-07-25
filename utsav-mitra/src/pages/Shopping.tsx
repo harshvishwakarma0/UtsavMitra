@@ -1,6 +1,7 @@
 import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { addShoppingItem, deleteShoppingItem, getShopping, updateShoppingItem } from "@/firebase/events";
+import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
+import { db } from "@/firebase/config";
 import type { ShoppingItem } from "@/types";
 
 export default function Shopping() {
@@ -14,40 +15,45 @@ export default function Shopping() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  async function load() {
-    try {
-      setLoading(true);
-      setItems(await getShopping(eventId));
-    } catch (e: any) {
-      console.error("Failed to load shopping list:", e);
-      setErr("Failed to load shopping items.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLoading(true);
+    setErr("");
+    return onSnapshot(
+      query(collection(db, "events", eventId, "shopping"), orderBy("name", "asc")),
+      (snap) => {
+        setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as ShoppingItem));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Failed to load shopping list:", error);
+        setErr("Failed to load shopping items.");
+        setLoading(false);
+      }
+    );
   }, [eventId]);
 
   async function add() {
     if (!name.trim()) return;
     setBusy(true);
     setErr("");
+    const itemRef = doc(collection(db, "events", eventId, "shopping"));
+    const newItem: ShoppingItem = {
+      id: itemRef.id,
+      name: name.trim(),
+      quantity: Math.max(1, qty),
+      estimatedCost: Math.max(0, cost),
+      bought: false,
+    };
+    setItems((previous) => [...previous, newItem].sort((a, b) => a.name.localeCompare(b.name)));
     try {
-      await addShoppingItem(eventId, {
-        name: name.trim(),
-        quantity: Math.max(1, qty),
-        estimatedCost: Math.max(0, cost),
-        bought: false,
-      });
+      const { id: _id, ...itemData } = newItem;
+      await setDoc(itemRef, itemData);
       setName("");
       setQty(1);
       setCost(0);
-      await load();
     } catch (e: any) {
       console.error("Failed to add shopping item:", e);
+      setItems((previous) => previous.filter((item) => item.id !== newItem.id));
       setErr(e?.message ?? "Failed to add item.");
     } finally {
       setBusy(false);
@@ -55,11 +61,12 @@ export default function Shopping() {
   }
 
   async function toggle(it: ShoppingItem) {
+    setItems((previous) => previous.map((item) => (item.id === it.id ? { ...item, bought: !it.bought } : item)));
     try {
-      await updateShoppingItem(eventId, it.id, { bought: !it.bought });
-      await load();
+      await updateDoc(doc(db, "events", eventId, "shopping", it.id), { bought: !it.bought });
     } catch (e: any) {
       console.error("Failed to update item:", e);
+      setItems((previous) => previous.map((item) => (item.id === it.id ? it : item)));
       setErr("Failed to update item status.");
     }
   }
@@ -67,11 +74,20 @@ export default function Shopping() {
   async function handleDelete(itemId: string, e: React.MouseEvent) {
     e.preventDefault();
     if (!confirm("Delete this shopping item?")) return;
+    const deletedIndex = items.findIndex((item) => item.id === itemId);
+    const deletedItem = items[deletedIndex];
+    if (!deletedItem) return;
+    setItems((previous) => previous.filter((item) => item.id !== itemId));
     try {
-      await deleteShoppingItem(eventId, itemId);
-      await load();
+      await deleteDoc(doc(db, "events", eventId, "shopping", itemId));
     } catch (e: any) {
       console.error("Failed to delete item:", e);
+      setItems((previous) => {
+        if (previous.some((item) => item.id === deletedItem.id)) return previous;
+        const next = [...previous];
+        next.splice(deletedIndex, 0, deletedItem);
+        return next;
+      });
       setErr("Failed to delete item.");
     }
   }
@@ -165,11 +181,15 @@ export default function Shopping() {
 
       {/* List */}
       {loading && items.length === 0 ? (
-        <p className="text-center text-sm text-text-dim">Loading shopping list…</p>
+        <div className="space-y-3">
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+          <Skeleton className="h-20" />
+        </div>
       ) : (
         <div className="space-y-2">
           {filteredItems.map((it) => (
-            <label key={it.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-3 cursor-pointer">
+            <label key={it.id} className="animate-fade-in flex items-center gap-3 rounded-xl border border-border bg-surface p-3 cursor-pointer">
               <input type="checkbox" checked={it.bought} onChange={() => toggle(it)} className="h-4 w-4 rounded" />
               <div className="flex-1 min-w-0">
                 <div className={`font-medium truncate ${it.bought ? "line-through text-text-dim" : "text-text"}`}>
@@ -193,4 +213,8 @@ export default function Shopping() {
       )}
     </div>
   );
+}
+
+function Skeleton({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-surface-2 ${className}`} />;
 }
