@@ -76,7 +76,7 @@ export default function Home() {
     setBusy(true);
     setErr("");
     try {
-      const member = { uid: user.uid, name: profile.displayName, role: "owner" as const };
+      const member = { uid: user.uid, name: profile.displayName, email: profile.email, role: "owner" as const };
       const id = await createEvent({
         title: title.trim(),
         templateKind: kind,

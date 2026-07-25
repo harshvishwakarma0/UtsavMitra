@@ -77,7 +77,7 @@ export async function claimPendingInvites(uid: string, email: string, displayNam
     if (!eventSnap.exists()) continue;
     const existingMembers: EventMember[] = eventSnap.data().members ?? [];
     if (existingMembers.some((m) => m.uid === uid)) continue;
-    await updateEvent(invite.eventId, { members: [...existingMembers, { uid, name: displayName, role: invite.role }] });
+    await updateEvent(invite.eventId, { members: [...existingMembers, { uid, name: displayName, email: normalizedEmail, role: invite.role }] });
     await updateDoc(doc(db, "eventInvites", docSnap.id), { status: "claimed", claimedBy: uid, claimedAt: Date.now() });
     results.push(invite.eventId);
   }

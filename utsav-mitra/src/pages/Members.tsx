@@ -1,6 +1,6 @@
 ﻿import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { collection, doc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { updateEvent } from "@/firebase/events";
@@ -46,32 +46,16 @@ export default function Members() {
     setBusy(true);
     setErr("");
     try {
-      const q = query(collection(db, "users"), where("email", "==", targetEmail));
-      const snap = await getDocs(q);
-
-      if (!snap.empty) {
-        const userDoc = snap.docs[0].data();
-        const memberUid = userDoc.uid;
-        const memberName = userDoc.displayName || targetEmail.split("@")[0];
-
-        if (event.members.some((m) => m.uid === memberUid)) {
-          setErr("Member is already in this event.");
-          return;
-        }
-        await updateEvent(eventId, {
-          members: [...event.members, { uid: memberUid, name: memberName, role: "member" }],
-        });
-      } else {
-        if (event.members.some((m) => m.uid === targetEmail)) {
-          setErr("This email was already added (previously unregistered).");
-          return;
-        }
-        const inviteId = await createInvite(eventId, targetEmail, profile?.uid ?? "");
-        setInvites((prev) => [
-          ...prev,
-          { id: inviteId, eventId, email: targetEmail, invitedBy: profile?.uid ?? "", role: "member", status: "pending", createdAt: Date.now() },
-        ]);
+      if (event.members.some((m) => m.email === targetEmail)) {
+        setErr("This person is already a member of this event.");
+        return;
       }
+
+      const inviteId = await createInvite(eventId, targetEmail, profile?.uid ?? "");
+      setInvites((prev) => [
+        ...prev,
+        { id: inviteId, eventId, email: targetEmail, invitedBy: profile?.uid ?? "", role: "member", status: "pending", createdAt: Date.now() },
+      ]);
       setEmail("");
     } catch (e: any) {
       console.error("Failed to add member:", e);

@@ -15,6 +15,7 @@ export type EventMemberRole = "owner" | "treasurer" | "member";
 export interface EventMember {
   uid: string;
   name: string;
+  email?: string;
   role: EventMemberRole;
 }
 
