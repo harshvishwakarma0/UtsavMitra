@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useParams } from "react-router-dom";
-import { collection, doc, onSnapshot } from "firebase/firestore";
+import { collection, doc, onSnapshot, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import type { EventDoc } from "@/types";
 import { Home as HomeIcon, Wallet, CheckSquare, ShoppingCart, Bell, Images, Users, ArrowLeft } from "lucide-react";
@@ -48,6 +48,21 @@ export default function EventLayout() {
     );
     return unsub;
   }, [id]);
+
+  // Auto-sync: detect members whose UIDs are missing from memberUids and fix them
+  useEffect(() => {
+    if (!event || !id) return;
+    const memberUids = event.memberUids || [];
+    const missingUids = event.members
+      .map((m) => m.uid)
+      .filter((uid) => uid && !memberUids.includes(uid));
+    if (missingUids.length > 0) {
+      console.log(`[sync] Fixing ${missingUids.length} missing UIDs in memberUids`);
+      updateDoc(doc(db, "events", id), {
+        memberUids: arrayUnion(...missingUids),
+      }).catch((e) => console.error("[sync] Failed to sync memberUids:", e));
+    }
+  }, [event, id]);
 
   useEffect(() => {
     if (!id) return;
