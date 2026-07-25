@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
+import { withTimeout } from "@/firebase/timeout";
 import { cn } from "@/lib/utils";
 import type { EventDoc, Task, TaskStatus, TaskPriority } from "@/types";
 
@@ -68,7 +69,7 @@ export default function Tasks() {
     setTasks((previous) => [newTask, ...previous]);
     try {
       const { id: _id, ...taskData } = newTask;
-      await setDoc(taskRef, taskData);
+      await withTimeout(setDoc(taskRef, taskData), 10_000);
       setTitle("");
       setDescription("");
       setDeadline("");
@@ -86,7 +87,7 @@ export default function Tasks() {
     const previousStatus = t.status;
     setTasks((previous) => previous.map((task) => (task.id === t.id ? { ...task, status } : task)));
     try {
-      await updateDoc(doc(db, "events", eventId, "tasks", t.id), { status });
+      await withTimeout(updateDoc(doc(db, "events", eventId, "tasks", t.id), { status }), 10_000);
     } catch (e: any) {
       console.error("Failed to update task status:", e);
       setTasks((previous) =>
@@ -113,7 +114,7 @@ export default function Tasks() {
     if (!deletedTask) return;
     setTasks((previous) => previous.filter((task) => task.id !== taskId));
     try {
-      await deleteDoc(doc(db, "events", eventId, "tasks", taskId));
+      await withTimeout(deleteDoc(doc(db, "events", eventId, "tasks", taskId)), 10_000);
     } catch (e: any) {
       console.error("Failed to delete task:", e);
       setTasks((previous) => {

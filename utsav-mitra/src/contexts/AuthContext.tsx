@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from "react";
 import { auth, db } from "@/firebase/config";
+import { withTimeout } from "@/firebase/timeout";
 import { claimPendingInvites } from "@/firebase/invites";
 import type { UserProfile } from "@/types";
 
@@ -52,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function loadProfile(u: User): Promise<UserProfile> {
     const ref = doc(db, "users", u.uid);
     try {
-      const snap = await getDoc(ref);
+      const snap = await withTimeout(getDoc(ref), 10_000);
       if (snap.exists()) {
         const p = snap.data() as UserProfile;
         setProfile(p);
@@ -67,7 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         memberOfEventIds: [],
         createdAt: Date.now(),
       };
-      await setDoc(ref, fallback);
+      try {
+        await withTimeout(setDoc(ref, fallback), 10_000);
+      } catch {
+        console.warn("Could not persist user profile to Firestore");
+      }
       setProfile(fallback);
       return fallback;
     } catch (e) {
@@ -112,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Try to check if this is the first user; if _meta is inaccessible, default to member
     let isFirst = false;
     try {
-      const metaSnap = await getDoc(metaRef);
+      const metaSnap = await withTimeout(getDoc(metaRef), 5_000);
       isFirst = !metaSnap.exists() || !metaSnap.data()?.firstUserCreated;
     } catch {
       // _meta rule may not be deployed yet - default to member
@@ -128,11 +133,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       createdAt: Date.now(),
     };
 
-    await setDoc(userRef, profile);
+    await withTimeout(setDoc(userRef, profile), 10_000);
 
     if (isFirst) {
       // Best-effort: mark first user in _meta (may fail if rule not deployed)
-      setDoc(metaRef, { firstUserCreated: true, firstUserUid: cred.user.uid, createdAt: Date.now() }).catch(() => {});
+      withTimeout(setDoc(metaRef, { firstUserCreated: true, firstUserUid: cred.user.uid, createdAt: Date.now() }), 5_000).catch(() => {});
     }
 
     setProfile(profile);

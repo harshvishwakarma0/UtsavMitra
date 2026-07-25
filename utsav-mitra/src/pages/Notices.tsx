@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
+import { withTimeout } from "@/firebase/timeout";
 import type { EventDoc, Notice } from "@/types";
 
 export default function Notices() {
@@ -50,7 +51,7 @@ export default function Notices() {
     setNotices((previous) => [newNotice, ...previous]);
     try {
       const { id: _id, ...noticeData } = newNotice;
-      await setDoc(noticeRef, noticeData);
+      await withTimeout(setDoc(noticeRef, noticeData), 10_000);
       setTitle("");
       setContent("");
     } catch (e: any) {
@@ -69,7 +70,7 @@ export default function Notices() {
     if (!deletedNotice) return;
     setNotices((previous) => previous.filter((notice) => notice.id !== noticeId));
     try {
-      await deleteDoc(doc(db, "events", eventId, "notices", noticeId));
+      await withTimeout(deleteDoc(doc(db, "events", eventId, "notices", noticeId)), 10_000);
     } catch (e: any) {
       console.error("Failed to delete notice:", e);
       setNotices((previous) => {

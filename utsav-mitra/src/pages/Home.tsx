@@ -1,10 +1,10 @@
 ﻿import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, setDoc, where } from "firebase/firestore";
 import type { Unsubscribe } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
-import { createEvent, deleteEvent, getTemplates, seedFromTemplate } from "@/firebase/events";
+import { deleteEvent, getTemplates, seedFromTemplate } from "@/firebase/events";
 import { ganpatiTemplate } from "@/templates/ganpati";
 import type { EventDoc, EventTemplate } from "@/types";
 
@@ -76,41 +76,43 @@ export default function Home() {
     }
     setBusy(true);
     setErr("");
-    try {
-      const member = { uid: user.uid, name: profile.displayName, email: profile.email, role: "owner" as const };
-      const id = await createEvent({
-        title: title.trim(),
-        templateKind: kind,
-        totalBudget: Math.max(0, budget),
-        createdBy: user.uid,
-        members: [member],
-        memberUids: [user.uid],
-        description: "",
-      });
 
-      try {
-        if (kind === "ganpati") {
-          await seedFromTemplate(id, ganpatiTemplate);
-        } else if (kind === "custom" && selectedTemplateId) {
-          const chosen = templates.find((t) => t.id === selectedTemplateId);
-          if (chosen?.items?.length) {
-            await seedFromTemplate(id, chosen.items);
-          }
+    const member = { uid: user.uid, name: profile.displayName, email: profile.email, role: "owner" as const };
+    const newDoc = doc(collection(db, "events"));
+    const eventData = {
+      title: title.trim(),
+      templateKind: kind,
+      totalBudget: Math.max(0, budget),
+      createdBy: user.uid,
+      members: [member],
+      memberUids: [user.uid],
+      description: "",
+      createdAt: Date.now(),
+    };
+
+    setTitle("");
+    setShowCreate(false);
+    nav(`/event/${newDoc.id}`);
+
+    setDoc(newDoc, eventData).then(() => {
+      if (kind === "ganpati") {
+        seedFromTemplate(newDoc.id, ganpatiTemplate).catch(() => {
+          console.error("Ganpati template seed failed - add items manually");
+        });
+      } else if (kind === "custom" && selectedTemplateId) {
+        const chosen = templates.find((t) => t.id === selectedTemplateId);
+        if (chosen?.items?.length) {
+          seedFromTemplate(newDoc.id, chosen.items).catch(() => {
+            console.error("Custom template seed failed - add items manually");
+          });
         }
-      } catch {
-        console.error("Template seed error");
-        setErr("Event created but template items failed to load. Please add them manually.");
       }
-
-      setTitle("");
-      setShowCreate(false);
-      nav(`/event/${id}`);
-    } catch (e: any) {
+    }).catch((e: any) => {
       console.error("Failed to create event:", e);
       setErr(e?.message ?? "Failed to create event. Please try again.");
-    } finally {
+    }).finally(() => {
       setBusy(false);
-    }
+    });
   }
 
   async function handleDeleteEvent(eventId: string, ev: React.MouseEvent) {

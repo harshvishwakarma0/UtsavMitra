@@ -45,24 +45,31 @@ export default function Members() {
     if (!event || !targetEmail) return;
     setBusy(true);
     setErr("");
-    try {
-      if (event.members.some((m) => m.email === targetEmail)) {
-        setErr("This person is already a member of this event.");
-        return;
-      }
 
-      const inviteId = await createInvite(eventId, targetEmail, profile?.uid ?? "");
-      setInvites((prev) => [
-        ...prev,
-        { id: inviteId, eventId, email: targetEmail, invitedBy: profile?.uid ?? "", role: "member", status: "pending", createdAt: Date.now() },
-      ]);
-      setEmail("");
-    } catch (e: any) {
-      console.error("Failed to add member:", e);
-      setErr(e?.message ?? "Failed to add member.");
-    } finally {
+    if (event.members.some((m) => m.email === targetEmail)) {
+      setErr("This person is already a member of this event.");
       setBusy(false);
+      return;
     }
+
+    const newInvite: EventInvite = {
+      id: crypto.randomUUID(),
+      eventId,
+      email: targetEmail,
+      invitedBy: profile?.uid ?? "",
+      role: "member",
+      status: "pending",
+      createdAt: Date.now(),
+    };
+    setInvites((prev) => [...prev, newInvite]);
+    setEmail("");
+    setBusy(false);
+
+    createInvite(eventId, targetEmail, profile?.uid ?? "", newInvite.id).catch((e: any) => {
+      console.error("Failed to add member:", e);
+      setInvites((prev) => prev.filter((i) => i.id !== newInvite.id));
+      setErr(e?.message ?? "Failed to add member. Invite may not have been saved.");
+    });
   }
 
   async function setRole(uid: string, role: EventMemberRole) {

@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { ref, listAll, deleteObject } from "firebase/storage";
 import { db, storage } from "@/firebase/config";
+import { withTimeout } from "./timeout";
 import type {
   EventDoc,
   EventTemplate,
@@ -30,11 +31,11 @@ export async function createEvent(
   data: Omit<EventDoc, "id" | "createdAt" | "memberUids"> & { memberUids?: string[] }
 ): Promise<string> {
   const memberUids = data.memberUids ?? data.members.map((m) => m.uid);
-  const ref = await addDoc(collection(db, "events"), {
+  const ref = await withTimeout(addDoc(collection(db, "events"), {
     ...data,
     memberUids,
     createdAt: Date.now(),
-  });
+  }), 30_000);
   return ref.id;
 }
 
@@ -43,16 +44,18 @@ export async function updateEvent(id: string, patch: Partial<EventDoc>) {
   if (patch.members) {
     updateData.memberUids = Array.from(new Set(patch.members.map((m) => m.uid)));
   }
-  await updateDoc(ev(id), updateData);
+  await withTimeout(updateDoc(ev(id), updateData), 10_000);
 }
 
 export async function deleteEvent(eventId: string) {
   const subNames = ["expenses", "tasks", "shopping", "notices", "gallery"];
   for (const name of subNames) {
-    const snap = await getDocs(sub(eventId, name));
-    const batch = writeBatch(db);
-    snap.docs.forEach((d) => batch.delete(d.ref));
-    if (snap.docs.length > 0) await batch.commit();
+    try {
+      const snap = await withTimeout(getDocs(sub(eventId, name)), 10_000);
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      if (snap.docs.length > 0) await withTimeout(batch.commit(), 15_000);
+    } catch { /* subcollection may not exist */ }
   }
   // Clean up Storage files for this event
   try {
@@ -62,78 +65,78 @@ export async function deleteEvent(eventId: string) {
       await deleteObject(item).catch(() => {});
     }
   } catch { /* folder may not exist */ }
-  await deleteDoc(ev(eventId));
+  await withTimeout(deleteDoc(ev(eventId)), 10_000);
 }
 
 // ---- Expenses ----
 export async function addExpense(eventId: string, e: Omit<Expense, "id">) {
-  await addDoc(sub(eventId, "expenses"), e);
+  await withTimeout(addDoc(sub(eventId, "expenses"), e), 10_000);
 }
 export async function getExpenses(eventId: string): Promise<Expense[]> {
   const q = query(sub(eventId, "expenses"), orderBy("date", "desc"));
-  const snap = await getDocs(q);
+  const snap = await withTimeout(getDocs(q), 10_000);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Expense));
 }
 export async function deleteExpense(eventId: string, expenseId: string) {
-  await deleteDoc(doc(db, "events", eventId, "expenses", expenseId));
+  await withTimeout(deleteDoc(doc(db, "events", eventId, "expenses", expenseId)), 10_000);
 }
 
 // ---- Tasks ----
 export async function addTask(eventId: string, t: Omit<Task, "id">) {
-  await addDoc(sub(eventId, "tasks"), t);
+  await withTimeout(addDoc(sub(eventId, "tasks"), t), 10_000);
 }
 export async function updateTask(eventId: string, id: string, patch: Partial<Task>) {
-  await updateDoc(doc(db, "events", eventId, "tasks", id), patch);
+  await withTimeout(updateDoc(doc(db, "events", eventId, "tasks", id), patch), 10_000);
 }
 export async function getTasks(eventId: string): Promise<Task[]> {
-  const snap = await getDocs(sub(eventId, "tasks"));
+  const snap = await withTimeout(getDocs(sub(eventId, "tasks")), 10_000);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Task));
 }
 export async function deleteTask(eventId: string, taskId: string) {
-  await deleteDoc(doc(db, "events", eventId, "tasks", taskId));
+  await withTimeout(deleteDoc(doc(db, "events", eventId, "tasks", taskId)), 10_000);
 }
 
 // ---- Shopping ----
 export async function addShoppingItem(eventId: string, it: Omit<ShoppingItem, "id">) {
-  await addDoc(sub(eventId, "shopping"), it);
+  await withTimeout(addDoc(sub(eventId, "shopping"), it), 10_000);
 }
 export async function updateShoppingItem(eventId: string, id: string, patch: Partial<ShoppingItem>) {
-  await updateDoc(doc(db, "events", eventId, "shopping", id), patch);
+  await withTimeout(updateDoc(doc(db, "events", eventId, "shopping", id), patch), 10_000);
 }
 export async function getShopping(eventId: string): Promise<ShoppingItem[]> {
-  const snap = await getDocs(sub(eventId, "shopping"));
+  const snap = await withTimeout(getDocs(sub(eventId, "shopping")), 10_000);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as ShoppingItem));
 }
 export async function deleteShoppingItem(eventId: string, itemId: string) {
-  await deleteDoc(doc(db, "events", eventId, "shopping", itemId));
+  await withTimeout(deleteDoc(doc(db, "events", eventId, "shopping", itemId)), 10_000);
 }
 
 // ---- Notices ----
 export async function addNotice(eventId: string, n: Omit<Notice, "id">) {
-  await addDoc(sub(eventId, "notices"), n);
+  await withTimeout(addDoc(sub(eventId, "notices"), n), 10_000);
 }
 export async function getNotices(eventId: string): Promise<Notice[]> {
   const q = query(sub(eventId, "notices"), orderBy("createdAt", "desc"));
-  const snap = await getDocs(q);
+  const snap = await withTimeout(getDocs(q), 10_000);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Notice));
 }
 export async function deleteNotice(eventId: string, noticeId: string) {
-  await deleteDoc(doc(db, "events", eventId, "notices", noticeId));
+  await withTimeout(deleteDoc(doc(db, "events", eventId, "notices", noticeId)), 10_000);
 }
 
 // ---- Gallery ----
 export async function addPhoto(eventId: string, p: Omit<GalleryPhoto, "id">) {
-  await addDoc(sub(eventId, "gallery"), p);
+  await withTimeout(addDoc(sub(eventId, "gallery"), p), 10_000);
 }
 export async function getGallery(eventId: string): Promise<GalleryPhoto[]> {
   const q = query(sub(eventId, "gallery"), orderBy("createdAt", "desc"));
-  const snap = await getDocs(q);
+  const snap = await withTimeout(getDocs(q), 10_000);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as GalleryPhoto));
 }
 export async function deletePhoto(eventId: string, photoId: string) {
   // Try to delete the Storage file first
   try {
-    const snap = await getDoc(doc(db, "events", eventId, "gallery", photoId));
+    const snap = await withTimeout(getDoc(doc(db, "events", eventId, "gallery", photoId)), 10_000);
     if (snap.exists()) {
       const data = snap.data() as { url?: string };
       if (data.url) {
@@ -146,22 +149,22 @@ export async function deletePhoto(eventId: string, photoId: string) {
       }
     }
   } catch { /* best effort */ }
-  await deleteDoc(doc(db, "events", eventId, "gallery", photoId));
+  await withTimeout(deleteDoc(doc(db, "events", eventId, "gallery", photoId)), 10_000);
 }
 
 // ---- Templates (shared library) ----
 export async function addTemplate(t: Omit<EventTemplate, "id" | "createdAt">) {
-  await addDoc(collection(db, "templates"), { ...t, createdAt: Date.now() });
+  await withTimeout(addDoc(collection(db, "templates"), { ...t, createdAt: Date.now() }), 10_000);
 }
 export async function getTemplates(): Promise<EventTemplate[]> {
-  const snap = await getDocs(collection(db, "templates"));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as EventTemplate));
+  const snap = await withTimeout(getDocs(collection(db, "templates")), 10_000);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }) as EventTemplate);
 }
 export async function deleteTemplate(id: string) {
-  await deleteDoc(doc(db, "templates", id));
+  await withTimeout(deleteDoc(doc(db, "templates", id)), 10_000);
 }
 export async function featureTemplate(id: string, featured: boolean) {
-  await updateDoc(doc(db, "templates", id), { featured });
+  await withTimeout(updateDoc(doc(db, "templates", id), { featured }), 10_000);
 }
 
 // Seed event from template items with batched writes for speed and atomicity
@@ -188,5 +191,5 @@ export async function seedFromTemplate(eventId: string, items: TemplateItem[]) {
       });
     }
   }
-  await batch.commit();
+  await withTimeout(batch.commit(), 15_000);
 }

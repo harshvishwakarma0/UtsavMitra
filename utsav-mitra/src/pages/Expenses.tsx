@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
+import { withTimeout } from "@/firebase/timeout";
 import { computeSettlement, netForMember } from "@/lib/settlement";
 import type { EventDoc, Expense, SplitEntry } from "@/types";
 
@@ -99,7 +100,7 @@ export default function Expenses() {
     setExpenses((previous) => [newExpense, ...previous]);
     try {
       const { id: _id, ...expenseData } = newExpense;
-      await setDoc(expenseRef, expenseData);
+      await withTimeout(setDoc(expenseRef, expenseData), 10_000);
       setTitle("");
       setAmount(0);
       setCustomAmounts({});
@@ -119,7 +120,7 @@ export default function Expenses() {
     if (!deletedExpense) return;
     setExpenses((previous) => previous.filter((expense) => expense.id !== expenseId));
     try {
-      await deleteDoc(doc(db, "events", eventId, "expenses", expenseId));
+      await withTimeout(deleteDoc(doc(db, "events", eventId, "expenses", expenseId)), 10_000);
     } catch (e: any) {
       console.error("Failed to delete expense:", e);
       setExpenses((previous) => {

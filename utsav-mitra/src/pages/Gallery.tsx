@@ -5,6 +5,7 @@ import { deletePhoto } from "@/firebase/events";
 import { collection, doc, onSnapshot, orderBy, query, setDoc } from "firebase/firestore";
 import { deleteObject, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/firebase/config";
+import { withTimeout } from "@/firebase/timeout";
 import type { GalleryPhoto } from "@/types";
 
 export default function Gallery() {
@@ -50,7 +51,7 @@ export default function Gallery() {
       newPhoto = { id: photoRef.id, url, uploadedBy: profile.uid, createdAt: Date.now() };
       setPhotos((previous) => [newPhoto!, ...previous]);
       const { id: _id, ...photoData } = newPhoto;
-      await setDoc(photoRef, photoData);
+      await withTimeout(setDoc(photoRef, photoData), 10_000);
     } catch (e: any) {
       console.error("Upload error:", e);
       if (newPhoto) setPhotos((previous) => previous.filter((photo) => photo.id !== newPhoto!.id));

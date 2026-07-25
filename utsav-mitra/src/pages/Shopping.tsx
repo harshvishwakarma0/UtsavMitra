@@ -2,6 +2,7 @@ import { useOutletContext } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { collection, deleteDoc, doc, onSnapshot, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/firebase/config";
+import { withTimeout } from "@/firebase/timeout";
 import type { ShoppingItem } from "@/types";
 
 export default function Shopping() {
@@ -47,7 +48,7 @@ export default function Shopping() {
     setItems((previous) => [...previous, newItem].sort((a, b) => a.name.localeCompare(b.name)));
     try {
       const { id: _id, ...itemData } = newItem;
-      await setDoc(itemRef, itemData);
+      await withTimeout(setDoc(itemRef, itemData), 10_000);
       setName("");
       setQty(1);
       setCost(0);
@@ -63,7 +64,7 @@ export default function Shopping() {
   async function toggle(it: ShoppingItem) {
     setItems((previous) => previous.map((item) => (item.id === it.id ? { ...item, bought: !it.bought } : item)));
     try {
-      await updateDoc(doc(db, "events", eventId, "shopping", it.id), { bought: !it.bought });
+      await withTimeout(updateDoc(doc(db, "events", eventId, "shopping", it.id), { bought: !it.bought }), 10_000);
     } catch (e: any) {
       console.error("Failed to update item:", e);
       setItems((previous) => previous.map((item) => (item.id === it.id ? it : item)));
@@ -79,7 +80,7 @@ export default function Shopping() {
     if (!deletedItem) return;
     setItems((previous) => previous.filter((item) => item.id !== itemId));
     try {
-      await deleteDoc(doc(db, "events", eventId, "shopping", itemId));
+      await withTimeout(deleteDoc(doc(db, "events", eventId, "shopping", itemId)), 10_000);
     } catch (e: any) {
       console.error("Failed to delete item:", e);
       setItems((previous) => {
