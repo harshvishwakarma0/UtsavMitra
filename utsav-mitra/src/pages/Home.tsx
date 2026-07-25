@@ -5,7 +5,7 @@ import type { Unsubscribe } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { deleteEvent, getTemplates, seedFromTemplate } from "@/firebase/events";
-import { repairOldInvite, claimPendingInvites, getEventInvites } from "@/firebase/invites";
+import { repairOldInvite, claimPendingInvites, getEventInvites, repairMemberUids } from "@/firebase/invites";
 import { ganpatiTemplate } from "@/templates/ganpati";
 import type { EventDoc, EventTemplate } from "@/types";
 
@@ -28,6 +28,7 @@ export default function Home() {
   const [err, setErr] = useState("");
   const [claiming, setClaiming] = useState(false);
   const [claimResult, setClaimResult] = useState("");
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   // Stable reference for template ID to avoid effect re-runs
   const templateIdRef = useRef(templateIdParam);
@@ -72,12 +73,14 @@ export default function Home() {
     return () => { mounted = false; unsub?.(); };
   }, [user?.uid]);
 
-  // Auto-repair old invites for events this user owns
+  // Auto-repair old invites and memberUids for events this user owns
   useEffect(() => {
     if (!user?.uid || events.length === 0) return;
     const owned = events.filter((e) => e.createdBy === user.uid);
     for (const evt of owned) {
-      // Repair is best-effort, non-blocking
+      // Repair memberUids (add missing UIDs from members array)
+      repairMemberUids(evt.id).catch(() => {});
+      // Repair old invites with non-deterministic IDs
       getEventInvites(evt.id).then((invList) => {
         for (const inv of invList) {
           const detId = `${evt.id}_${inv.email}`;
@@ -177,11 +180,33 @@ export default function Home() {
           <button onClick={() => nav("/templates")} className="text-sm font-medium text-primary hover:underline">
             Templates
           </button>
-          <button onClick={logout} className="text-sm text-text-dim hover:text-text">
+          <button onClick={() => setShowLogoutConfirm(true)} className="text-sm text-text-dim hover:text-text">
             Logout
           </button>
         </div>
       </header>
+
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+            <p className="mb-4 text-center text-base font-medium text-text">Are you sure you want to logout?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 rounded-xl border border-text-dim/20 py-2.5 text-sm font-medium text-text-dim hover:bg-surface-2"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowLogoutConfirm(false); logout(); }}
+                className="flex-1 rounded-xl bg-primary py-2.5 text-sm font-semibold text-black hover:opacity-90"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {err && <div className="mb-4 rounded-lg bg-surface-2 p-3 text-sm text-danger">{err}</div>}
 
@@ -199,6 +224,15 @@ export default function Home() {
           className="mb-4 w-full rounded-xl border border-primary/50 bg-surface p-3 font-medium text-primary hover:bg-surface-2 disabled:opacity-50"
         >
           {claiming ? "Checking..." : "Check for Invites"}
+        </button>
+      )}
+      {events.length > 0 && (
+        <button
+          onClick={handleCheckInvites}
+          disabled={claiming}
+          className="mb-4 w-full rounded-xl border border-border bg-surface-2 p-2 text-xs text-text-dim hover:bg-surface disabled:opacity-50"
+        >
+          {claiming ? "Checking..." : "Check for New Invites"}
         </button>
       )}
       {claimResult && (
