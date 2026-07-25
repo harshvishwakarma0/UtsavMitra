@@ -4,7 +4,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/firebase/config";
 import { useAuth } from "@/contexts/AuthContext";
 import { updateEvent } from "@/firebase/events";
-import { createInvite, getEventInvites, cancelInvite } from "@/firebase/invites";
+import { createInvite, getEventInvites, cancelInvite, repairOldInvite } from "@/firebase/invites";
 import type { EventDoc, EventMemberRole } from "@/types";
 import type { EventInvite } from "@/firebase/invites";
 
@@ -29,13 +29,31 @@ export default function Members() {
     return unsub;
   }, [eventId]);
 
-  // Load pending invites
+  // Load pending invites + auto-repair old-format invites
   useEffect(() => {
     if (!eventId) return;
     getEventInvites(eventId)
-      .then(setInvites)
+      .then(async (loaded) => {
+        // Auto-repair old invites with non-deterministic IDs
+        const deterministicId = (email: string) => `${eventId}_${email.toLowerCase().trim()}`;
+        const oldInvites = loaded.filter((inv) => inv.id !== deterministicId(inv.email));
+        if (oldInvites.length > 0 && profile?.uid) {
+          for (const inv of oldInvites) {
+            try {
+              await repairOldInvite(eventId, inv.email, profile.uid);
+            } catch (e) {
+              console.error("Failed to repair invite:", e);
+            }
+          }
+          // Re-fetch after repair
+          const refreshed = await getEventInvites(eventId);
+          setInvites(refreshed);
+        } else {
+          setInvites(loaded);
+        }
+      })
       .catch((e) => console.error("Failed to load invites:", e));
-  }, [eventId]);
+  }, [eventId, profile?.uid]);
 
   const myRole = event?.members.find((m) => m.uid === profile?.uid)?.role;
   const canManage = myRole === "owner" || isSuperAdmin;
@@ -52,8 +70,10 @@ export default function Members() {
       return;
     }
 
+    // Deterministic invite ID: {eventId}_{email}
+    const inviteId = `${eventId}_${targetEmail}`;
     const newInvite: EventInvite = {
-      id: crypto.randomUUID(),
+      id: inviteId,
       eventId,
       email: targetEmail,
       invitedBy: profile?.uid ?? "",
@@ -65,9 +85,9 @@ export default function Members() {
     setEmail("");
     setBusy(false);
 
-    createInvite(eventId, targetEmail, profile?.uid ?? "", newInvite.id).catch((e: any) => {
+    createInvite(eventId, targetEmail, profile?.uid ?? "").catch((e: any) => {
       console.error("Failed to add member:", e);
-      setInvites((prev) => prev.filter((i) => i.id !== newInvite.id));
+      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
       setErr(e?.message ?? "Failed to add member. Invite may not have been saved.");
     });
   }
@@ -94,10 +114,10 @@ export default function Members() {
     }
   }
 
-  async function handleCancelInvite(inviteId: string) {
+  async function handleCancelInvite(inviteId: string, inviteEmail: string) {
     if (!confirm("Cancel this invite?")) return;
     try {
-      await cancelInvite(inviteId);
+      await cancelInvite(inviteId, eventId, inviteEmail);
       setInvites((prev) => prev.filter((i) => i.id !== inviteId));
     } catch (e: any) {
       console.error("Failed to cancel invite:", e);
@@ -176,7 +196,7 @@ export default function Members() {
               </div>
               {canManage && (
                 <button
-                  onClick={() => handleCancelInvite(inv.id)}
+                  onClick={() => handleCancelInvite(inv.id, inv.email)}
                   className="rounded-lg bg-surface-2 border border-border p-1 text-xs text-danger hover:bg-danger/10"
                   title="Cancel Invite"
                 >

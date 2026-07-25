@@ -86,6 +86,7 @@ export default function Home() {
       createdBy: user.uid,
       members: [member],
       memberUids: [user.uid],
+      pendingMemberEmails: [] as string[],
       description: "",
       createdAt: Date.now(),
     };

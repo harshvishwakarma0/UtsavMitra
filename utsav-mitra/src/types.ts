@@ -33,6 +33,7 @@ export interface EventDoc {
   totalBudget: number;
   members: EventMember[];
   memberUids: string[];
+  pendingMemberEmails?: string[];
   isRecurringCopy?: boolean;
 }
 

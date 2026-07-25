@@ -50,7 +50,20 @@ service cloud.firestore {
         request.resource.data.memberUids.hasAll([request.auth.uid]) &&
         isReasonableSize()
       );
-      allow update: if isEventOwner(eventId) || isSuperAdmin();
+      allow update: if isEventOwner(eventId) || isSuperAdmin() || (
+        // Allow invited users to claim their membership
+        isSignedIn() &&
+        request.resource.data.memberUids.hasAny([request.auth.uid]) &&
+        (
+          // New path: email is in event's pendingMemberEmails
+          request.auth.token.email in resource.data.pendingMemberEmails ||
+          // Legacy path: deterministic invite doc exists and is pending
+          (
+            exists(/databases/$(database)/documents/eventInvites/$(eventId + "_" + request.auth.token.email)) &&
+            get(/databases/$(database)/documents/eventInvites/$(eventId + "_" + request.auth.token.email)).data.status == "pending"
+          )
+        )
+      );
       allow delete: if isEventOwner(eventId) || isSuperAdmin();
 
       match /{subcollection}/{docId} {
